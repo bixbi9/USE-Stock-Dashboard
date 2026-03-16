@@ -1,0 +1,114 @@
+@import "tailwindcss";
+
+:root {
+  --background: #0a0f1a;
+  --foreground: #e2e8f0;
+  --accent: #14b8a6;
+  --accent-strong: #0f766e;
+  --accent-warm: #f59e0b;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: 'Space Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-family: 'Fraunces', 'Space Grotesk', serif;
+  letter-spacing: -0.01em;
+}
+
+/* Custom gradient background */
+.bg-gradient-mesh {
+  background: 
+    radial-gradient(at 20% 10%, rgba(20, 184, 166, 0.18) 0px, transparent 55%),
+    radial-gradient(at 85% 15%, rgba(245, 158, 11, 0.12) 0px, transparent 55%),
+    radial-gradient(at 0% 70%, rgba(56, 189, 248, 0.1) 0px, transparent 60%),
+    radial-gradient(at 90% 70%, rgba(15, 118, 110, 0.18) 0px, transparent 55%),
+    linear-gradient(180deg, #0a0f1a 0%, #0f172a 100%);
+}
+
+/* Animated gradient border */
+@keyframes gradient-shift {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+.gradient-border {
+  background: linear-gradient(90deg, #10b981, #14b8a6, #06b6d4, #10b981);
+  background-size: 300% 300%;
+  animation: gradient-shift 5s ease infinite;
+}
+
+/* Smooth fade in animation */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.5s ease forwards;
+}
+
+/* Custom scrollbar for the whole page */
+::-webkit-scrollbar {
+  width: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.5);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.4);
+  border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.6);
+}
+
+/* Selection color */
+::selection {
+  background: rgba(16, 185, 129, 0.3);
+  color: white;
+}
+
+/* Line clamp utility */
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Sentiment bar fills — width is driven by the --sentiment-w CSS variable
+   set on each element. Using a CSS class + custom property avoids inline
+   style width assignments while still supporting runtime-computed values. */
+.sentiment-fill {
+  height: 100%;
+  transition: width 300ms ease;
+  width: var(--sentiment-w, 0%);
+}
+
+/* Pulse animation for loading states */
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 20px rgba(16, 185, 129, 0.3); }
+  50% { box-shadow: 0 0 40px rgba(16, 185, 129, 0.5); }
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+/* Dividend history bar — width driven by --bar-w CSS variable */
+.dividend-bar-fill {
+  height: 100%;
+  border-radius: 9999px;
+  transition: width 500ms ease;
+  width: var(--bar-w, 0%);
+}
