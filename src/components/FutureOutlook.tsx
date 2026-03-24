@@ -89,8 +89,8 @@ export default function FutureOutlook({ info, metrics, sentiment }: FutureOutloo
                     border: '1px solid #334155',
                     borderRadius: 8
                   }}
-                  formatter={(value: number, name: string) => [
-                    `${info.currency} ${formatCompact(value)}`,
+                  formatter={(value: number | undefined, name: string) => [
+                    value != null ? `${info.currency} ${formatCompact(Number(value))}` : '',
                     name === 'revenue' ? 'Revenue' : 'Earnings'
                   ]}
                 />

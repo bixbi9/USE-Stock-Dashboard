@@ -46,8 +46,8 @@ export default function PriceTargetHistory({ info, metrics, sentiment }: PriceTa
               tickFormatter={(value) => value.toFixed(0)}
             />
             <Tooltip
-              formatter={(value: number, name: string) => [
-                `${info.currency} ${value.toFixed(2)}`,
+              formatter={(value: number | undefined, name: string) => [
+                value != null ? `${info.currency} ${Number(value).toFixed(2)}` : '',
                 name === 'target' ? 'Price Target' : 'Market Price'
               ]}
               contentStyle={{
