@@ -80,7 +80,7 @@ export default function PastPerformance({ info, metrics }: PastPerformanceProps)
                   tickFormatter={(value) => `${value.toFixed(0)}`}
                 />
                 <Tooltip
-                  formatter={(value: number | undefined, name: string) => [
+                  formatter={(value: number | undefined, name: string | undefined) => [
                     value != null ? `${info.currency} ${Number(value).toFixed(0)}` : '',
                     name === 'price' ? 'Price' : 'Market'
                   ]}
