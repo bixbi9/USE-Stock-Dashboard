@@ -54,7 +54,7 @@ export default function PastPerformance({ info, metrics }: PastPerformanceProps)
                   tickFormatter={(value) => `${value}%`}
                 />
                 <Tooltip
-                  formatter={(value: number) => `${value.toFixed(1)}%`}
+                  formatter={(value: number | undefined) => value != null ? `${Number(value).toFixed(1)}%` : ''}
                   contentStyle={{
                     background: '#0f172a',
                     border: '1px solid #334155',

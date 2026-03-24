@@ -50,7 +50,7 @@ export default function FinancialHealth({ info, metrics }: FinancialHealthProps)
                 width={120}
               />
               <Tooltip
-                formatter={(value: number) => `${value.toFixed(0)}/100`}
+                formatter={(value: number | undefined) => value != null ? `${Number(value).toFixed(0)}/100` : ''}
                 contentStyle={{
                   background: '#0f172a',
                   border: '1px solid #334155',
