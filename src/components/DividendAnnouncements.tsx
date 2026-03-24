@@ -149,7 +149,7 @@ function HistoryRow({ div, currency, maxAmount }: { div: DividendAnnouncement; c
 
 export default function DividendAnnouncements({ dividends, currency }: Props) {
   const sorted   = [...dividends].sort((a, b) => new Date(b.paymentDate).getTime() - new Date(a.paymentDate).getTime());
-  const upcoming = sorted.filter(d => d.status === 'upcoming' || d.status === 'declared');
+  const upcoming = sorted.filter(d => d.status === 'upcoming' || d.status === 'announced');
   const history  = sorted.filter(d => d.status === 'paid');
   const maxAmt   = Math.max(...sorted.map(d => d.amount), 0);
   const annual   = totalAnnual(dividends);
