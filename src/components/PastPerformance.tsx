@@ -27,7 +27,7 @@ export default function PastPerformance({ info, metrics }: PastPerformanceProps)
         <div>
           <p className="text-xs uppercase tracking-[0.2em] text-amber-200">Past Performance</p>
           <h3 className="text-2xl font-semibold text-white mt-2">{info.ticker} Returns & Drawdowns</h3>
-          <p className="text-slate-400 text-sm mt-1">Mirrors Simply Wall St historical return snapshot.</p>
+          <p className="text-slate-400 text-sm mt-1">Historical returns and drawdown analysis.</p>
         </div>
         <div className="text-right">
           <p className="text-xs text-slate-400">5Y Total Return</p>

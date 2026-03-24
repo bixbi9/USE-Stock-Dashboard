@@ -26,7 +26,7 @@ export default function FinancialHealth({ info, metrics }: FinancialHealthProps)
           <p className="text-xs uppercase tracking-[0.2em] text-cyan-200">Financial Health</p>
           <h3 className="text-2xl font-semibold text-white mt-2">Balance Sheet Strength</h3>
           <p className="text-slate-400 text-sm mt-1">
-            Modeled health ratios similar to Simply Wall St financial health tab.
+            Key balance sheet ratios and financial health indicators.
           </p>
         </div>
         <div className="text-right">

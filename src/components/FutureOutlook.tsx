@@ -37,7 +37,7 @@ export default function FutureOutlook({ info, metrics, sentiment }: FutureOutloo
             {info.name} — Forecast & Valuation
           </h2>
           <p className="text-slate-400 text-sm mt-1">
-            Inspired by Simply Wall St future performance insights and growth charts.
+            Forward-looking valuation and growth projections.
           </p>
         </div>
         <div className="flex items-center gap-3">
