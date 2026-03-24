@@ -1,28 +1,31 @@
 import { NextResponse } from 'next/server';
-import { refreshPrices } from '@/lib/dataFetcher';
+import { refreshDividends } from '@/lib/newsScraper';
 
-// Cron: weekdays at 06:00 UTC (09:00 EAT) — pre-market, just before USE opens
-// Dedicated price-only refresh; news/dividends have their own cron routes.
+// Cron: daily at 10:00 EAT (07:00 UTC) on weekdays
+// Also runs on-demand via GET or POST (manual trigger / Vercel cron)
 export async function GET(request: Request) {
   try {
     const authHeader = request.headers.get('authorization');
     const cronSecret = process.env.CRON_SECRET;
-
     if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    await refreshPrices();
+    const result = await refreshDividends();
+    const totals = Object.fromEntries(
+      Object.entries(result).map(([ticker, divs]) => [ticker, divs.length])
+    );
 
     return NextResponse.json({
       success: true,
-      message: 'Pre-market prices refreshed',
+      message: 'Dividend announcements refreshed',
+      dividendCounts: totals,
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
-    console.error('[update-prices] Error:', error);
+    console.error('[update-dividends] Error:', error);
     return NextResponse.json(
-      { error: 'Failed to update prices', details: error instanceof Error ? error.message : 'Unknown error' },
+      { error: 'Failed to refresh dividends', details: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
     );
   }
@@ -31,4 +34,3 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   return GET(request);
 }
-
