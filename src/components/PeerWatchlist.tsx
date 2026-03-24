@@ -1,5 +1,6 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import { StockInfo, StockMetrics } from '@/types/stock';
 
 interface Props {
@@ -113,11 +114,11 @@ const WATCHLIST: WatchlistEntry[] = [
     ticker: 'NIC',
     name: 'National Insurance Corporation',
     sector: 'Insurance',
-    priceLabel: 'UGX 18',
+    priceLabel: 'UGX 5',
     verdict: 'hold',
     peRatio: 10.5,
     dividendYield: 0,
-    marketCap: 'UGX 54B',
+    marketCap: 'UGX 10.6B',
     revGrowth: '+9.3%',
     thesis: 'Uganda\'s premier insurer with government-backed heritage. Penetration rates remain extremely low (~1% vs 3% regional average) implying significant structural runway. Compulsory motor and health segments provide recurring premium income.',
     concerns: 'No dividend since FY2022 (last paid Sep 2023 at UGX 1.00/share). Posted a loss in FY2023; FY2024 PAT of UGX 477M is too thin to support a payout. Low float and poor liquidity make entry/exit difficult.',
@@ -145,7 +146,28 @@ const VERDICT_STYLE: Record<Verdict, { label: string; textClass: string; bgClass
   sell: { label: 'SELL', textClass: 'text-red-400', bgClass: 'bg-red-500/10', borderClass: 'border-red-500/30' },
 };
 
+interface LivePrice {
+  currentPrice: number;
+  change: number;
+  changePercent: number;
+}
+
+function fmtLivePrice(currency: string, price: number): string {
+  if (price >= 1000) return `${currency} ${Math.round(price).toLocaleString()}`;
+  if (price >= 10)   return `${currency} ${price.toFixed(0)}`;
+  return `${currency} ${price.toFixed(2)}`;
+}
+
 export default function PeerWatchlist({ info, metrics }: Props) {
+  const [livePrices, setLivePrices] = useState<Record<string, LivePrice>>({});
+
+  useEffect(() => {
+    fetch('/api/prices')
+      .then(r => r.ok ? r.json() : {})
+      .then(data => setLivePrices(data))
+      .catch(() => {});
+  }, []);
+
   const currentEntry = WATCHLIST.find(e => e.ticker === info.ticker);
 
   // Show current stock first (if in list), then others up to 8 total
@@ -189,6 +211,14 @@ export default function PeerWatchlist({ info, metrics }: Props) {
         {displayed.map(entry => {
           const cfg = VERDICT_STYLE[entry.verdict];
           const isCurrent = entry.ticker === info.ticker;
+          // Use live price: for the currently-viewed stock use the already-fetched metrics prop
+          const live: LivePrice | undefined = isCurrent
+            ? { currentPrice: metrics.currentPrice, change: metrics.change, changePercent: metrics.changePercent }
+            : livePrices[entry.ticker];
+          const priceStr = live
+            ? fmtLivePrice(info.currency, live.currentPrice)
+            : entry.priceLabel;
+          const changePositive = live ? live.changePercent >= 0 : null;
 
           return (
             <div
@@ -210,7 +240,15 @@ export default function PeerWatchlist({ info, metrics }: Props) {
                       </span>
                     )}
                   </div>
-                  <div className="text-xs text-slate-400">{entry.name} · {entry.priceLabel}</div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs text-slate-400">{entry.name}</span>
+                    <span className="text-xs font-mono font-semibold text-white">{priceStr}</span>
+                    {live && (
+                      <span className={`text-xs font-mono ${changePositive ? 'text-emerald-400' : 'text-red-400'}`}>
+                        {changePositive ? '+' : ''}{live.changePercent.toFixed(2)}%
+                      </span>
+                    )}
+                  </div>
                   <div className="text-xs text-slate-500 mt-0.5">{entry.sector}</div>
                 </div>
                 <span

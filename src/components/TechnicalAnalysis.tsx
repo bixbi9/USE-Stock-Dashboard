@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from 'react';
 import {
   ComposedChart,
   Line,
+  Area,
   Bar,
   XAxis,
   YAxis,
@@ -62,42 +63,118 @@ function supportResistance(candles: Candle[]): { support: number; resistance: nu
   return { support, resistance };
 }
 
+// Bollinger Bands: upper = SMA(20) + 2σ, lower = SMA(20) − 2σ
+function bollingerBands(
+  closes: number[],
+  period: number,
+  idx: number
+): { mid: number; upper: number; lower: number } | null {
+  if (idx < period - 1) return null;
+  const slice = closes.slice(idx - period + 1, idx + 1);
+  const mid = slice.reduce((a, b) => a + b, 0) / period;
+  const variance = slice.reduce((a, b) => a + (b - mid) ** 2, 0) / period;
+  const sd = Math.sqrt(variance);
+  return { mid, upper: mid + 2 * sd, lower: mid - 2 * sd };
+}
+
+// Detect swing highs and lows (local extremes over a lookback window)
+function isSwingHigh(closes: number[], idx: number, window = 5): boolean {
+  const start = Math.max(0, idx - window);
+  const end = Math.min(closes.length - 1, idx + window);
+  for (let j = start; j <= end; j++) {
+    if (j !== idx && closes[j] >= closes[idx]) return false;
+  }
+  return true;
+}
+
+function isSwingLow(closes: number[], idx: number, window = 5): boolean {
+  const start = Math.max(0, idx - window);
+  const end = Math.min(closes.length - 1, idx + window);
+  for (let j = start; j <= end; j++) {
+    if (j !== idx && closes[j] <= closes[idx]) return false;
+  }
+  return true;
+}
+
 // ── Chart tooltip ────────────────────────────────────────────────────────────
 
-function PriceTooltip({ active, payload, label, currency }: any) {
+const PRICE_SHOW_KEYS = ['close', 'ma50', 'ma200', 'bbUpper', 'bbLower'];
+
+function PriceTooltip({ active, payload, label, currency, fmtDate }: any) {
   if (!active || !payload?.length) return null;
+  const fmt = (v: number) =>
+    Number(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  // Find the raw candle fields from the payload (stored directly on the data point)
+  const point = payload[0]?.payload;
+  const displayDate = fmtDate ? fmtDate(label) : label;
+
+  // Build ordered rows: Close → 50-MA → 200-MA → BB Upper → BB Lower
+  const keyMeta: Record<string, { label: string; className: string }> = {
+    close:    { label: 'Close',    className: 'text-cyan-400' },
+    ma50:     { label: '50-MA',    className: 'text-orange-400' },
+    ma200:    { label: '200-MA',   className: 'text-purple-400' },
+    bbUpper:  { label: 'BB Upper', className: 'text-sky-400' },
+    bbLower:  { label: 'BB Lower', className: 'text-sky-400' },
+  };
+
   return (
-    <div className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs shadow-xl">
-      <p className="font-semibold text-slate-300 mb-1">{label}</p>
-      {payload.map((entry: any) => (
-        entry.value != null && (
-          <p key={entry.dataKey} style={{ color: entry.color ?? entry.stroke }}>
-            {entry.name}: {currency} {Number(entry.value).toLocaleString(undefined, { maximumFractionDigits: 2 })}
-          </p>
-        )
-      ))}
+    <div className="bg-slate-900/95 border border-slate-600 rounded-xl px-4 py-3 text-xs shadow-2xl min-w-[180px]">
+      <p className="font-semibold text-slate-200 mb-2 text-sm">{displayDate}</p>
+      {/* OHLC row */}
+      {point && (
+        <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 mb-2 pb-2 border-b border-slate-700">
+          <span className="text-slate-500">Open</span>
+          <span className="text-right font-mono text-slate-300">{currency} {fmt(point.open)}</span>
+          <span className="text-slate-500">High</span>
+          <span className="text-right font-mono text-emerald-400">{currency} {fmt(point.high)}</span>
+          <span className="text-slate-500">Low</span>
+          <span className="text-right font-mono text-red-400">{currency} {fmt(point.low)}</span>
+          <span className="text-slate-500">Close</span>
+          <span className="text-right font-mono text-cyan-400 font-bold">{currency} {fmt(point.close)}</span>
+        </div>
+      )}
+      {/* Indicator rows */}
+      {PRICE_SHOW_KEYS.map(key => {
+        const val = point?.[key];
+        const meta = keyMeta[key];
+        if (val == null || !meta) return null;
+        return (
+          <div key={key} className="flex justify-between gap-4">
+            <span className="text-slate-500">{meta.label}</span>
+            <span className={`font-mono ${meta.className}`}>
+              {currency} {fmt(val)}
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
+}
+
+function fmtIsoDate(iso: string) {
+  const d = new Date(iso + 'T00:00:00');
+  return d.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
 function RsiTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null;
   const val = payload.find((p: any) => p.dataKey === 'rsi')?.value;
-  const color = val >= 70 ? '#f87171' : val <= 30 ? '#4ade80' : '#fbbf24';
+  const colorClass = val >= 70 ? 'text-red-400' : val <= 30 ? 'text-emerald-400' : 'text-yellow-400';
   return (
     <div className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs shadow-xl">
-      <p className="font-semibold text-slate-300 mb-1">{label}</p>
-      {val != null && <p style={{ color }}>RSI(14): {val.toFixed(1)}</p>}
+      <p className="font-semibold text-slate-300 mb-1">{fmtIsoDate(label)}</p>
+      {val != null && <p className={colorClass}>RSI(14): {val.toFixed(1)}</p>}
     </div>
   );
 }
 
-function VolumeTooltip({ active, payload, label, currency }: any) {
+function VolumeTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null;
   const vol = payload[0]?.value;
   return (
     <div className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs shadow-xl">
-      <p className="font-semibold text-slate-300 mb-1">{label}</p>
+      <p className="font-semibold text-slate-300 mb-1">{fmtIsoDate(label)}</p>
       {vol != null && <p className="text-slate-300">Vol: {Number(vol).toLocaleString()}</p>}
     </div>
   );
@@ -165,15 +242,28 @@ export default function TechnicalAnalysis({ ticker, info, metrics }: Props) {
   const series = useMemo(() => {
     if (!candles.length) return [];
     const closes = candles.map(c => c.close);
-    return candles.map((c, i) => ({
-      date: c.date.slice(5),         // "MM-DD"
-      close: c.close,
-      volume: c.volume,
-      ma50: sma(closes, 50, i),
-      ma200: sma(closes, 200, i),
-      rsi: rsi(closes, 14, i),
-      up: c.close >= c.open,
-    }));
+    return candles.map((c, i) => {
+      const bb = bollingerBands(closes, 20, i);
+      const swingHigh = isSwingHigh(closes, i, 7);
+      const swingLow  = isSwingLow(closes, i, 7);
+      return {
+        date: c.date,          // full "YYYY-MM-DD" — used by XAxis & tooltip
+        close: c.close,
+        open:  c.open,
+        high:  c.high,
+        low:   c.low,
+        volume: c.volume,
+        ma50:  sma(closes, 50, i),
+        ma200: sma(closes, 200, i),
+        rsi:   rsi(closes, 14, i),
+        up: c.close >= c.open,
+        bbUpper: bb?.upper ?? null,
+        bbLower: bb?.lower ?? null,
+        bbMid:   bb?.mid   ?? null,
+        swingHighDot: swingHigh ? c.close : null,
+        swingLowDot:  swingLow  ? c.close : null,
+      };
+    });
   }, [candles]);
 
   // ── Current indicator values (last bar) ──
@@ -204,15 +294,20 @@ export default function TechnicalAnalysis({ ticker, info, metrics }: Props) {
   const ma50Signal = lastMa50 !== null && metrics.currentPrice > lastMa50;
   const ma200Signal = lastMa200 !== null && metrics.currentPrice > lastMa200;
 
-  // Thin the x-axis labels to avoid crowding
-  const labelEvery = Math.max(1, Math.floor(series.length / 12));
-  const visibleSeries = series.map((d, i) => ({
-    ...d,
-    xLabel: i % labelEvery === 0 ? d.date : '',
-  }));
+  // Format "YYYY-MM-DD" → "Jan '25" for x-axis ticks
+  const fmtAxisDate = (iso: string) => {
+    const d = new Date(iso + 'T00:00:00');
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  };
+
+  // Format "YYYY-MM-DD" → "15 Mar 2025" for tooltip header
+  const fmtTooltipDate = (iso: string) => {
+    const d = new Date(iso + 'T00:00:00');
+    return d.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
+  };
 
   return (
-    <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-2xl p-6 shadow-xl border border-slate-700/50">
+    <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-2xl p-6 shadow-xl border border-slate-700/50 overflow-hidden">
       {/* Header */}
       <div className="flex items-center gap-3 mb-6">
         <div className="w-1.5 h-7 bg-yellow-500 rounded-full" />
@@ -272,6 +367,138 @@ export default function TechnicalAnalysis({ ticker, info, metrics }: Props) {
             />
           </div>
 
+          {/* ── Price Chart with MAs + Bollinger Bands ── */}
+          {/* Negative horizontal margin cancels the card's p-6 so the chart spans full width */}
+          <div className="bg-slate-800/60 border-y border-slate-700 -mx-6 px-6 py-5 mb-6">
+            <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+              <h4 className="text-sm font-semibold text-white">1-Year Price Chart with Moving Averages</h4>
+              <div className="flex gap-4 text-xs flex-wrap">
+                <span className="flex items-center gap-1.5">
+                  <span className="inline-block w-6 h-0.5 rounded bg-cyan-400" />
+                  <span className="text-slate-400">Price</span>
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="inline-block w-6 border-t-2 border-dashed border-orange-400" />
+                  <span className="text-slate-400">50-MA</span>
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="inline-block w-6 border-t-2 border-dashed border-purple-400" />
+                  <span className="text-slate-400">200-MA</span>
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="inline-block w-4 h-3 rounded-sm bg-sky-400/20 border border-sky-400/40" />
+                  <span className="text-slate-400">BB(20,2)</span>
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="inline-block w-2 h-2 rounded-full bg-emerald-400" />
+                  <span className="text-slate-400">Swing Low</span>
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="inline-block w-2 h-2 rounded-full bg-red-400" />
+                  <span className="text-slate-400">Swing High</span>
+                </span>
+              </div>
+            </div>
+            <ResponsiveContainer width="100%" height={520}>
+              <ComposedChart data={series} margin={{ top: 8, right: 28, left: 0, bottom: 24 }}>
+                <defs>
+                  <linearGradient id="bbFill" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%"  stopColor="#38bdf8" stopOpacity={0.12} />
+                    <stop offset="95%" stopColor="#38bdf8" stopOpacity={0.04} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid stroke="#1e293b" strokeDasharray="3 3" vertical={false} />
+                <XAxis
+                  dataKey="date"
+                  tick={{ fontSize: 10, fill: '#64748b' }}
+                  axisLine={false}
+                  tickLine={false}
+                  /* show ~one label per month (252 trading days ÷ 12 months ≈ 21) */
+                  interval={20}
+                  tickFormatter={fmtAxisDate}
+                  angle={-35}
+                  textAnchor="end"
+                  height={44}
+                />
+                <YAxis
+                  tick={{ fontSize: 10, fill: '#64748b' }}
+                  axisLine={false}
+                  tickLine={false}
+                  tickFormatter={v => {
+                    if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`;
+                    if (v >= 1000) return `${(v / 1000).toFixed(0)}k`;
+                    return String(v);
+                  }}
+                  width={48}
+                />
+                <Tooltip
+                  content={<PriceTooltip currency={info.currency} fmtDate={fmtTooltipDate} />}
+                  cursor={{ stroke: '#475569', strokeWidth: 1, strokeDasharray: '4 2' }}
+                />
+                {/* Support / Resistance */}
+                <ReferenceLine y={resistance} stroke="#f87171" strokeDasharray="5 5" strokeWidth={1} label={{ value: 'Res.', position: 'right', fontSize: 9, fill: '#f87171' }} />
+                <ReferenceLine y={support} stroke="#4ade80" strokeDasharray="5 5" strokeWidth={1} label={{ value: 'Sup.', position: 'right', fontSize: 9, fill: '#4ade80' }} />
+                {/* Bollinger Band fill — upper bound as top of area */}
+                <Area
+                  type="monotone"
+                  dataKey="bbUpper"
+                  stroke="#38bdf8"
+                  strokeWidth={1}
+                  strokeDasharray="3 3"
+                  strokeOpacity={0.5}
+                  fill="url(#bbFill)"
+                  dot={false}
+                  name="BB Upper"
+                  connectNulls
+                  legendType="none"
+                  baseLine={0}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="bbLower"
+                  stroke="#38bdf8"
+                  strokeWidth={1}
+                  strokeDasharray="3 3"
+                  strokeOpacity={0.5}
+                  fill="#0f172a"
+                  dot={false}
+                  name="BB Lower"
+                  connectNulls
+                  legendType="none"
+                />
+                {/* Price */}
+                <Line type="monotone" dataKey="close" stroke="#2dd4bf" strokeWidth={2} dot={false} name="Close" />
+                {/* MAs */}
+                <Line type="monotone" dataKey="ma50"  stroke="#fb923c" strokeWidth={1.5} strokeDasharray="5 4" dot={false} name="50-MA"  connectNulls />
+                <Line type="monotone" dataKey="ma200" stroke="#a78bfa" strokeWidth={1.5} strokeDasharray="8 4" dot={false} name="200-MA" connectNulls />
+                {/* Swing high dots */}
+                <Line
+                  type="monotone"
+                  dataKey="swingHighDot"
+                  stroke="#f87171"
+                  strokeWidth={0}
+                  dot={{ r: 3, fill: '#f87171', strokeWidth: 0 }}
+                  activeDot={false}
+                  name="Swing High"
+                  connectNulls={false}
+                  legendType="none"
+                />
+                {/* Swing low dots */}
+                <Line
+                  type="monotone"
+                  dataKey="swingLowDot"
+                  stroke="#4ade80"
+                  strokeWidth={0}
+                  dot={{ r: 3, fill: '#4ade80', strokeWidth: 0 }}
+                  activeDot={false}
+                  name="Swing Low"
+                  connectNulls={false}
+                  legendType="none"
+                />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
+
           {/* ── Signal Badges ── */}
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 mb-6">
             <SignalBadge
@@ -316,57 +543,6 @@ export default function TechnicalAnalysis({ ticker, info, metrics }: Props) {
             />
           </div>
 
-          {/* ── Price Chart with MAs ── */}
-          <div className="bg-slate-800/60 border border-slate-700 rounded-xl p-5 mb-5">
-            <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
-              <h4 className="text-sm font-semibold text-white">Price with Moving Averages</h4>
-              <div className="flex gap-4 text-xs">
-                <span className="flex items-center gap-1.5">
-                  <span className="inline-block w-6 h-0.5 bg-cyan-400 rounded" />
-                  <span className="text-slate-400">Price</span>
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <span className="inline-block w-6 h-0.5 bg-orange-400 rounded" style={{ borderTop: '2px dashed #fb923c', background: 'none' }} />
-                  <span className="text-slate-400">50-MA</span>
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <span className="inline-block w-6 h-0.5 bg-purple-400 rounded" style={{ borderTop: '2px dashed #a78bfa', background: 'none' }} />
-                  <span className="text-slate-400">200-MA</span>
-                </span>
-              </div>
-            </div>
-            <ResponsiveContainer width="100%" height={280}>
-              <ComposedChart data={visibleSeries} margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
-                <CartesianGrid stroke="#1e293b" strokeDasharray="3 3" vertical={false} />
-                <XAxis
-                  dataKey="xLabel"
-                  tick={{ fontSize: 10, fill: '#64748b' }}
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <YAxis
-                  tick={{ fontSize: 10, fill: '#64748b' }}
-                  axisLine={false}
-                  tickLine={false}
-                  tickFormatter={v => {
-                    if (v >= 1000) return `${(v / 1000).toFixed(0)}k`;
-                    return String(v);
-                  }}
-                  width={44}
-                />
-                <Tooltip content={<PriceTooltip currency={info.currency} />} />
-                {/* Support / Resistance */}
-                <ReferenceLine y={resistance} stroke="#f87171" strokeDasharray="5 5" strokeWidth={1} label={{ value: 'Res.', position: 'right', fontSize: 9, fill: '#f87171' }} />
-                <ReferenceLine y={support} stroke="#4ade80" strokeDasharray="5 5" strokeWidth={1} label={{ value: 'Sup.', position: 'right', fontSize: 9, fill: '#4ade80' }} />
-                {/* Price */}
-                <Line type="monotone" dataKey="close" stroke="#2dd4bf" strokeWidth={2} dot={false} name="Close" />
-                {/* MAs */}
-                <Line type="monotone" dataKey="ma50" stroke="#fb923c" strokeWidth={1.5} strokeDasharray="5 4" dot={false} name="50-MA" connectNulls />
-                <Line type="monotone" dataKey="ma200" stroke="#a78bfa" strokeWidth={1.5} strokeDasharray="8 4" dot={false} name="200-MA" connectNulls />
-              </ComposedChart>
-            </ResponsiveContainer>
-          </div>
-
           {/* ── RSI + Volume Row ── */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
             {/* RSI Chart */}
@@ -379,13 +555,15 @@ export default function TechnicalAnalysis({ ticker, info, metrics }: Props) {
                 </div>
               </div>
               <ResponsiveContainer width="100%" height={180}>
-                <ComposedChart data={visibleSeries} margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
+                <ComposedChart data={series} margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
                   <CartesianGrid stroke="#1e293b" strokeDasharray="3 3" vertical={false} />
                   <XAxis
-                    dataKey="xLabel"
+                    dataKey="date"
                     tick={{ fontSize: 10, fill: '#64748b' }}
                     axisLine={false}
                     tickLine={false}
+                    interval={20}
+                    tickFormatter={fmtAxisDate}
                   />
                   <YAxis
                     domain={[0, 100]}
@@ -443,13 +621,15 @@ export default function TechnicalAnalysis({ ticker, info, metrics }: Props) {
                 </div>
               </div>
               <ResponsiveContainer width="100%" height={180}>
-                <ComposedChart data={visibleSeries} margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
+                <ComposedChart data={series} margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
                   <CartesianGrid stroke="#1e293b" strokeDasharray="3 3" vertical={false} />
                   <XAxis
-                    dataKey="xLabel"
+                    dataKey="date"
                     tick={{ fontSize: 10, fill: '#64748b' }}
                     axisLine={false}
                     tickLine={false}
+                    interval={20}
+                    tickFormatter={fmtAxisDate}
                   />
                   <YAxis
                     tick={{ fontSize: 10, fill: '#64748b' }}
@@ -471,7 +651,7 @@ export default function TechnicalAnalysis({ ticker, info, metrics }: Props) {
                     label={{ value: 'Avg', position: 'right', fontSize: 9, fill: '#64748b' }}
                   />
                   <Bar dataKey="volume" maxBarSize={10} radius={[2, 2, 0, 0]}>
-                    {visibleSeries.map((entry, i) => (
+                    {series.map((entry, i) => (
                       <Cell
                         key={`vol-${i}`}
                         fill={entry.up ? 'rgba(45,212,191,0.55)' : 'rgba(248,113,113,0.45)'}

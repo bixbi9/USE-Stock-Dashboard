@@ -711,12 +711,12 @@ const stockMetrics: Record<string, StockMetrics> = {
     lastUpdated: new Date().toISOString()
   },
   NIC: {
-    currentPrice: 18,
-    change: 0.3,
-    changePercent: 1.69,
-    high52Week: 24,
-    low52Week: 14,
-    marketCap: 'UGX 54B',
+    currentPrice: 5,
+    change: 0,
+    changePercent: 0,
+    high52Week: 5.50, // UGX 5.50 traded on Jan 8, 2026 — source: afx.kwayisi.org/use/nic.html
+    low52Week: 4.50,
+    marketCap: 'UGX 10.6B', // 2.12B shares × UGX 5.00 — source: afx.kwayisi.org/use/nic.html
     volume: 95000,
     avgVolume: 78000,
     peRatio: 10.5,

@@ -271,7 +271,55 @@ async function getMockPricesFromSource(): Promise<Record<string, StockMetrics>> 
   return prices;
 }
 
-// Generate historical candlestick data
+// ── Seeded PRNG (xorshift32) ─────────────────────────────────────────────────
+// Deterministic per ticker so the chart is stable across page loads.
+
+function makeRand(seed: number): () => number {
+  let s = (seed >>> 0) || 1;
+  return () => {
+    s ^= s << 13;
+    s ^= s >> 17;
+    s ^= s << 5;
+    return (s >>> 0) / 4294967296;
+  };
+}
+
+function tickerSeed(ticker: string, currentPrice: number): number {
+  let h = 0xdeadbeef;
+  for (const c of ticker) h = Math.imul(h ^ c.charCodeAt(0), 0x9e3779b9);
+  h ^= Math.round(currentPrice); // stable within a trading session
+  return h >>> 0;
+}
+
+// Box-Muller transform → standard-normal sample
+function makeRandn(rand: () => number): () => number {
+  return () => {
+    const u1 = Math.max(rand(), 1e-10);
+    const u2 = rand();
+    return Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+  };
+}
+
+// ── Regime definitions ───────────────────────────────────────────────────────
+// USE stocks (emerging-market, thin liquidity) exhibit pronounced trend regimes.
+
+interface Regime {
+  drift: number; // per-period log drift
+  vol: number;   // per-period log volatility
+}
+
+function regimesForTimeframe(baseVol: number): Regime[] {
+  return [
+    { drift:  0.0015, vol: baseVol },           // mild uptrend
+    { drift: -0.002,  vol: baseVol * 1.5 },     // pullback / downtrend
+    { drift:  0.0005, vol: baseVol * 0.55 },    // sideways / consolidation
+    { drift:  0.003,  vol: baseVol * 1.25 },    // strong rally
+    { drift: -0.001,  vol: baseVol * 0.8 },     // slow drift lower
+  ];
+}
+
+// ── Main generator ───────────────────────────────────────────────────────────
+
 export function generateHistoricalData(
   ticker: string,
   currentPrice: number,
@@ -281,59 +329,90 @@ export function generateHistoricalData(
 
   let periods: number;
   let daysPerPeriod: number;
+  let baseVol: number;
 
   switch (timeframe) {
     case 'daily':
-      periods = 252; // ~1 year of trading days — enough for both 50-day and 200-day MAs
+      periods = 252;  // ~1 year of trading days — enough for 50-day and 200-day MAs
       daysPerPeriod = 1;
+      baseVol = 0.02; // 2 % daily — realistic for USE thin-market stocks
       break;
     case 'weekly':
-      periods = 104; // 2 years of weekly bars
+      periods = 104;
       daysPerPeriod = 7;
+      baseVol = 0.045;
       break;
     case 'monthly':
-      periods = 36; // 3 years of monthly bars
+      periods = 36;
       daysPerPeriod = 30;
+      baseVol = 0.09;
       break;
     case 'yearly':
+    default:
       periods = 5;
       daysPerPeriod = 365;
+      baseVol = 0.22;
       break;
   }
 
-  const volatility = 0.015; // 1.5% per-period volatility
+  const rand  = makeRand(tickerSeed(ticker, currentPrice));
+  const randn = makeRandn(rand);
+  const regimes = regimesForTimeframe(baseVol);
 
-  // Walk BACKWARD from today so the most recent close always equals currentPrice.
-  // This ensures the chart's last bar matches the "Current Price" displayed in the header.
-  let price = currentPrice;
-  const tempData: PriceData[] = [];
+  // ── Generate log-returns with regime switching ──
+  // Regimes switch every 20-60 bars producing visible trend swings.
+  const logReturns: number[] = [];
+  let regimeIdx = Math.floor(rand() * regimes.length);
+  let regimeRemaining = Math.floor(rand() * 40) + 20;
+  const momentum = 0.12; // mild autocorrelation for smoother swings
 
   for (let i = 0; i < periods; i++) {
-    const date = new Date(now);
-    date.setDate(date.getDate() - i * daysPerPeriod);
-
-    const change = (Math.random() - 0.5) * volatility * price;
-    const close = price;
-    const open = Math.max(price - change, 0.01);
-    const wick = Math.abs(change) * Math.random() * 0.5;
-    const high = Math.max(open, close) + wick;
-    const low = Math.max(Math.min(open, close) - wick, 0.01);
-    const volume = Math.floor(Math.random() * 1_000_000 + 50_000);
-
-    tempData.push({
-      date: date.toISOString().split('T')[0],
-      open: Math.round(open * 100) / 100,
-      high: Math.round(high * 100) / 100,
-      low: Math.round(low * 100) / 100,
-      close: Math.round(close * 100) / 100,
-      volume,
-    });
-
-    price = open; // step further back in time
+    if (regimeRemaining <= 0) {
+      // Pick any regime except the current one to ensure visible change
+      regimeIdx = (regimeIdx + 1 + Math.floor(rand() * (regimes.length - 1))) % regimes.length;
+      regimeRemaining = Math.floor(rand() * 40) + 20;
+    }
+    const { drift, vol } = regimes[regimeIdx];
+    const prev = i > 0 ? logReturns[i - 1] : 0;
+    logReturns.push(drift + vol * randn() + momentum * prev);
+    regimeRemaining--;
   }
 
-  // Reverse so the array is in chronological order (oldest → newest)
-  return tempData.reverse();
+  // ── Convert log-returns → price levels, then scale to end exactly at currentPrice ──
+  const rawPrices: number[] = [1.0];
+  for (const r of logReturns) rawPrices.push(rawPrices[rawPrices.length - 1] * Math.exp(r));
+
+  const scale = currentPrice / rawPrices[rawPrices.length - 1];
+  const scaledPrices = rawPrices.map(p => p * scale);
+
+  // ── Build OHLCV bars ──
+  const data: PriceData[] = [];
+  for (let i = 0; i < periods; i++) {
+    const date = new Date(now);
+    date.setDate(date.getDate() - (periods - 1 - i) * daysPerPeriod);
+
+    const openPrice  = scaledPrices[i];
+    const closePrice = scaledPrices[i + 1];
+    const intradayVol = baseVol * 0.5;
+    const high = Math.max(openPrice, closePrice) * (1 + Math.abs(randn()) * intradayVol * 0.4);
+    const low  = Math.min(openPrice, closePrice) * Math.max(1 - Math.abs(randn()) * intradayVol * 0.4, 0.01);
+
+    // Volume spikes on high-move days (common in thin markets)
+    const dailyMovePct = Math.abs(closePrice - openPrice) / openPrice;
+    const volMultiplier = Math.min(1 + dailyMovePct / baseVol, 5);
+    const volume = Math.floor((rand() * 600_000 + 80_000) * volMultiplier);
+
+    data.push({
+      date:   date.toISOString().split('T')[0],
+      open:   Math.round(openPrice  * 100) / 100,
+      high:   Math.round(high       * 100) / 100,
+      low:    Math.max(Math.round(low * 100) / 100, 0.01),
+      close:  Math.round(closePrice * 100) / 100,
+      volume,
+    });
+  }
+
+  return data;
 }
 
 // Get historical data for a stock

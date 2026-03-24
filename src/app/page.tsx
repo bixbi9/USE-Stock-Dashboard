@@ -133,6 +133,13 @@ export default function Home() {
               currency={stockData.info.currency}
             />
 
+            {/* Technical Analysis — directly after market intelligence */}
+            <TechnicalAnalysis
+              ticker={selectedTicker}
+              info={stockData.info}
+              metrics={stockData.metrics}
+            />
+
             {/* Future Outlook */}
             <FutureOutlook
               info={stockData.info}
@@ -161,13 +168,6 @@ export default function Home() {
 
             {/* Risk Analysis */}
             <RiskAnalysis info={stockData.info} metrics={stockData.metrics} />
-
-            {/* Technical Analysis — price chart, MAs, RSI, Volume, levels */}
-            <TechnicalAnalysis
-              ticker={selectedTicker}
-              info={stockData.info}
-              metrics={stockData.metrics}
-            />
 
             {/* Candlestick Chart + Pattern Recognition */}
             <StockChart ticker={selectedTicker} />
