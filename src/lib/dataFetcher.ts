@@ -3,7 +3,7 @@
 
 import { StockMetrics, USE_STOCKS } from '@/types/stock';
 import { getStockDataSync } from './mockData';
-import { getCachedPrices, setCachedPrices } from './redis';
+import { getCachedPrices, setCachedPrices, invalidatePriceCache } from './redis';
 
 interface PriceData {
   date: string;
@@ -452,7 +452,6 @@ export async function getHistoricalData(
 // Clears Redis + in-memory cache so the next fetchCurrentPrices call
 // scrapes fresh data from African Financials.
 export async function refreshPrices(): Promise<void> {
-  const { invalidatePriceCache } = await import('./redis');
   await invalidatePriceCache();
   priceCache = null;
   lastUpdate = null;
