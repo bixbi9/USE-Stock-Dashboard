@@ -23,31 +23,36 @@ export async function GET(
 
   const upper = ticker.toUpperCase();
 
-  // Kick off all refreshes in parallel so they don't block each other
-  const [latestPrices] = await Promise.all([
-    fetchCurrentPrices().catch(() => ({})),
-    isNewsCacheFresh()     ? Promise.resolve() : refreshNews().catch(() => {}),
-    isDividendCacheFresh() ? Promise.resolve() : refreshDividends().catch(() => {}),
-  ]);
+  // Only await the price fetch — it uses Redis so it's fast on warm cache.
+  // News and dividend scrapes hit multiple external URLs and can take 5–15 s;
+  // firing them in the background lets the response return immediately and
+  // the cache warms up for the next request.
+  const latestPrices = await fetchCurrentPrices().catch(() => ({} as Record<string, any>));
+
+  if (!isNewsCacheFresh())     refreshNews().catch(() => {});
+  if (!isDividendCacheFresh()) refreshDividends().catch(() => {});
 
   const stockData = getStockDataSync(upper);
   if (!stockData) {
-    return NextResponse.json({ error: `Stock data not found for ticker: ${ticker}` }, { status: 404 });
+    return NextResponse.json(
+      { error: `Stock data not found for ticker: ${ticker}` },
+      { status: 404 }
+    );
   }
 
   // Overlay live price if available
-  if ((latestPrices as Record<string, any>)[upper]) {
-    stockData.metrics = (latestPrices as Record<string, any>)[upper];
+  if (latestPrices[upper]) {
+    stockData.metrics = latestPrices[upper];
   }
 
-  // Overlay live news
+  // Overlay live news (uses whatever is in cache right now)
   const latestNews = getNewsForTicker(upper);
   if (latestNews.length > 0) {
     stockData.news      = latestNews.slice(0, 12);
     stockData.sentiment = getSentimentForNews(stockData.news);
   }
 
-  // Overlay live dividends
+  // Overlay live dividends (uses whatever is in cache right now)
   const latestDividends = getDividendsForTicker(upper);
   if (latestDividends.length > 0) {
     stockData.dividends = latestDividends;
