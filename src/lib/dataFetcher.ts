@@ -3,6 +3,7 @@
 
 import { StockMetrics, USE_STOCKS } from '@/types/stock';
 import { getStockDataSync } from './mockData';
+import { getCachedPrices, setCachedPrices } from './redis';
 
 interface PriceData {
   date: string;
@@ -178,8 +179,18 @@ async function fetchFallbackPrices(): Promise<Record<string, StockMetrics>> {
 }
 
 // Fetch current stock prices from African Financials
+// Cache priority: Redis (persists across Vercel serverless instances) →
+//                 in-memory (same instance only) → scrape → mock data
 export async function fetchCurrentPrices(): Promise<Record<string, StockMetrics>> {
-  // Check if cache is still valid (less than 24 hours old)
+  // 1. Try Redis cache (survives across cold starts on Vercel)
+  const redisCached = await getCachedPrices<Record<string, StockMetrics>>();
+  if (redisCached && Object.keys(redisCached).length > 0) {
+    priceCache = redisCached;   // warm the in-memory cache too
+    lastUpdate = new Date();
+    return redisCached;
+  }
+
+  // 2. Fall back to in-memory cache (within the same serverless instance)
   if (priceCache && lastUpdate) {
     const hoursSinceUpdate = (Date.now() - lastUpdate.getTime()) / (1000 * 60 * 60);
     if (hoursSinceUpdate < 24) {
@@ -187,6 +198,7 @@ export async function fetchCurrentPrices(): Promise<Record<string, StockMetrics>
     }
   }
 
+  // 3. Scrape African Financials
   try {
     const response = await fetch('https://africanfinancials.com/uganda-securities-exchange-share-prices/', {
       headers: {
@@ -228,15 +240,20 @@ export async function fetchCurrentPrices(): Promise<Record<string, StockMetrics>
       throw new Error('No prices parsed from African Financials');
     }
 
+    // Persist to Redis (24 hr TTL) and warm in-memory cache
+    await setCachedPrices(prices);
     priceCache = prices;
     lastUpdate = new Date();
 
     return prices;
   } catch (error) {
     console.error('Error fetching prices:', error);
+
+    // 4. Try optional fallback API
     try {
       const fallbackPrices = await fetchFallbackPrices();
       if (Object.keys(fallbackPrices).length > 0) {
+        await setCachedPrices(fallbackPrices);
         priceCache = fallbackPrices;
         lastUpdate = new Date();
         return fallbackPrices;
@@ -245,6 +262,7 @@ export async function fetchCurrentPrices(): Promise<Record<string, StockMetrics>
       console.error('Fallback data source failed:', fallbackError);
     }
 
+    // 5. Last resort: mock data (no Redis write — don't cache stale mock data)
     const mock = await getMockPricesFromSource();
     priceCache = mock;
     lastUpdate = new Date();
@@ -430,8 +448,12 @@ export async function getHistoricalData(
   return generateHistoricalData(ticker, currentPrice, timeframe);
 }
 
-// Force refresh prices (for manual updates)
+// Force refresh prices (for manual updates / cron job)
+// Clears Redis + in-memory cache so the next fetchCurrentPrices call
+// scrapes fresh data from African Financials.
 export async function refreshPrices(): Promise<void> {
+  const { invalidatePriceCache } = await import('./redis');
+  await invalidatePriceCache();
   priceCache = null;
   lastUpdate = null;
   await fetchCurrentPrices();
