@@ -2,28 +2,8 @@
   "crons": [
     {
       "path": "/api/update-prices",
-      "schedule": "0 6 * * 1-5",
-      "comment": "Pre-market price refresh — 09:00 EAT (06:00 UTC), weekdays, before USE opens"
-    },
-    {
-      "path": "/api/snapshot-prices",
-      "schedule": "0 11 * * 1-5",
-      "comment": "End-of-day snapshot — 14:00 EAT (11:00 UTC), weekdays, 30 min after USE closes at 13:30 EAT"
-    },
-    {
-      "path": "/api/update-dividends",
-      "schedule": "0 7 * * 1-5",
-      "comment": "Dividend scrape — 10:00 EAT (07:00 UTC), weekdays; scrapes USE & AfricanFinancials"
-    },
-    {
-      "path": "/api/update-news",
-      "schedule": "0 6,10,14,18 * * *",
-      "comment": "News scrape every 4 hours — matches NEWS_CACHE_TTL_HOURS; 8 Ugandan/EA outlets"
-    },
-    {
-      "path": "/api/update-financials",
-      "schedule": "0 6 * * 6",
-      "comment": "Weekly full refresh — Saturday 09:00 EAT (06:00 UTC); prices + dividends + news + IR health check"
+      "schedule": "0 6,11 * * 1-6",
+      "comment": "Combined daily refresh (prices + dividends + news). Runs at 06:00 UTC (09:00 EAT, pre-market) and 11:00 UTC (14:00 EAT, post-market close at 13:30 EAT), Mon–Sat."
     }
   ]
 }
