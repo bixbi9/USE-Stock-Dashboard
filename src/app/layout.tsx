@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { SpeedInsights } from '@vercel/speed-insights/next';
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -24,6 +25,7 @@ export default function RootLayout({
       </head>
       <body className="antialiased bg-gradient-mesh min-h-screen">
         {children}
+        <SpeedInsights />
       </body>
     </html>
   );
