@@ -65,6 +65,30 @@ export interface CorporateAction {
   importance: 'high' | 'medium' | 'low';
 }
 
+export interface FinancialFigure {
+  label: string;
+  value: number | null;
+  currency?: string;
+  unit?: string;
+  raw: string;
+}
+
+export interface FinancialDocument {
+  ticker: string;
+  company: string;
+  title: string;
+  url: string;
+  summary: string;
+  documentType?: string;
+  publishedAt?: string;
+  year?: number;
+  period?: string;
+  sector?: string;
+  figures: FinancialFigure[];
+  source: 'AfricanFinancials';
+  sourceTicker?: string;
+}
+
 export interface StockData {
   info: StockInfo;
   metrics: StockMetrics;
@@ -72,6 +96,11 @@ export interface StockData {
   sentiment: SentimentSummary;
   dividends: DividendAnnouncement[];
   corporateActions: CorporateAction[];
+  financials?: FinancialDocument[];
+  financialsMeta?: {
+    updatedAt?: string;
+    sourceUrl?: string;
+  };
 }
 
 export const USE_STOCKS: StockInfo[] = [
@@ -160,4 +189,3 @@ export const USE_STOCKS: StockInfo[] = [
     currency: 'UGX'
   }
 ];
-

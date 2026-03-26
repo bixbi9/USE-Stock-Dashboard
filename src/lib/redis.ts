@@ -6,6 +6,8 @@
 
 const PRICE_CACHE_KEY = 'use:prices';
 const PRICE_CACHE_TTL = 60 * 60 * 24; // 24 hours in seconds
+const FINANCIALS_CACHE_KEY = 'use:financials';
+const FINANCIALS_CACHE_TTL = 60 * 60 * 24 * 7; // 7 days in seconds
 
 async function upstashFetch(command: unknown[]): Promise<unknown> {
   const url = process.env.UPSTASH_REDIS_REST_URL;
@@ -51,5 +53,32 @@ export async function invalidatePriceCache(): Promise<void> {
     await upstashFetch(['DEL', PRICE_CACHE_KEY]);
   } catch (err) {
     console.error('[Redis] invalidatePriceCache failed:', err);
+  }
+}
+
+export async function getCachedFinancials<T>(): Promise<T | null> {
+  try {
+    const result = await upstashFetch(['GET', FINANCIALS_CACHE_KEY]);
+    if (!result) return null;
+    return (typeof result === 'string' ? JSON.parse(result) : result) as T;
+  } catch (err) {
+    console.error('[Redis] getCachedFinancials failed:', err);
+    return null;
+  }
+}
+
+export async function setCachedFinancials<T>(financials: T): Promise<void> {
+  try {
+    await upstashFetch(['SET', FINANCIALS_CACHE_KEY, JSON.stringify(financials), 'EX', FINANCIALS_CACHE_TTL]);
+  } catch (err) {
+    console.error('[Redis] setCachedFinancials failed:', err);
+  }
+}
+
+export async function invalidateFinancialsCache(): Promise<void> {
+  try {
+    await upstashFetch(['DEL', FINANCIALS_CACHE_KEY]);
+  } catch (err) {
+    console.error('[Redis] invalidateFinancialsCache failed:', err);
   }
 }

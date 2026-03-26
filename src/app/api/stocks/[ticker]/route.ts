@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getStockDataSync } from '@/lib/mockData';
 import { fetchCurrentPrices } from '@/lib/dataFetcher';
+import { getFinancialsSnapshot } from '@/lib/financialsScraper';
 import {
   getNewsForTicker,
   getDividendsForTicker,
@@ -56,6 +57,16 @@ export async function GET(
   const latestDividends = getDividendsForTicker(upper);
   if (latestDividends.length > 0) {
     stockData.dividends = latestDividends;
+  }
+
+  // Overlay latest financial documents (from African Financials)
+  const financialsSnapshot = await getFinancialsSnapshot();
+  if (financialsSnapshot?.byTicker?.[upper]?.length) {
+    stockData.financials = financialsSnapshot.byTicker[upper];
+    stockData.financialsMeta = {
+      updatedAt: financialsSnapshot.updatedAt,
+      sourceUrl: financialsSnapshot.sourceUrl,
+    };
   }
 
   return NextResponse.json({

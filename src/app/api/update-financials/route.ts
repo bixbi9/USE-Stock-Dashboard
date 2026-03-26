@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { refreshDividends, refreshNews } from '@/lib/newsScraper';
 import { refreshPrices } from '@/lib/dataFetcher';
+import { refreshFinancials } from '@/lib/financialsScraper';
 
 // ── Source URLs ──────────────────────────────────────────────────────────────
 // These pages publish USE corporate actions, financial results, and regulatory
@@ -60,15 +61,17 @@ export async function GET(request: Request) {
     }
 
     // Run all refreshes in parallel
-    const [, dividendResult, newsResult, sourceHealth] = await Promise.allSettled([
+    const [, dividendResult, newsResult, financialsResult, sourceHealth] = await Promise.allSettled([
       refreshPrices(),
       refreshDividends(),
       refreshNews(),
+      refreshFinancials(),
       checkSources(),
     ]);
 
     const dividends = dividendResult.status === 'fulfilled' ? dividendResult.value : {};
     const news      = newsResult.status      === 'fulfilled' ? newsResult.value      : {};
+    const financials = financialsResult.status === 'fulfilled' ? financialsResult.value : null;
     const health    = sourceHealth.status    === 'fulfilled' ? sourceHealth.value    : [];
 
     const reachable   = (health as any[]).filter(s => s.ok).length;
@@ -80,6 +83,8 @@ export async function GET(request: Request) {
       summary: {
         totalDividendRecords: Object.values(dividends).flat().length,
         totalNewsArticles:    Object.values(news).flat().length,
+        totalFinancialDocs:   financials ? Object.values(financials.byTicker).flat().length : 0,
+        missingFinancials:    financials?.missingTickers ?? [],
         sourcesReachable:     reachable,
         sourcesUnreachable:   unreachable,
       },

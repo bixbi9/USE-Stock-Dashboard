@@ -10,10 +10,11 @@ A Next.js dashboard for Uganda Securities Exchange (USE) stocks with real-time d
 - **Dividend Tracking**: Track dividend announcements and payments
 - **Corporate Actions**: Monitor AGMs, earnings releases, and other corporate events
 - **News Articles**: Latest news with sentiment scores
+- **Financial Filings**: Latest USE-listed company documents from African Financials
 
 ## Data Source
 
-Stock prices are sourced from [African Financials](https://africanfinancials.com/uganda-securities-exchange-share-prices/)
+Stock prices and filings are sourced from [African Financials](https://africanfinancials.com/uganda-securities-exchange-share-prices/)
 
 ## Daily Updates
 

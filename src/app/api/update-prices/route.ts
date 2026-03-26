@@ -1,12 +1,14 @@
 import { NextResponse } from 'next/server';
 import { refreshPrices } from '@/lib/dataFetcher';
 import { refreshNews, refreshDividends } from '@/lib/newsScraper';
+import { refreshFinancials } from '@/lib/financialsScraper';
 
 // Single combined cron — runs daily at 06:00 UTC (09:00 EAT), Mon–Sat
 // Executes all data refresh jobs in parallel:
 //   • Prices      — scrapes African Financials for latest USE prices
 //   • Dividends   — scrapes USE & AfricanFinancials for dividend announcements
 //   • News        — scrapes 8 Ugandan/EA RSS feeds for stock-related news
+//   • Financials  — scrapes African Financials filings for USE listed companies
 // A second run fires at 11:00 UTC (14:00 EAT) on weekdays to capture the
 // official end-of-day closing prices after USE market close at 13:30 EAT.
 export async function GET(request: Request) {
@@ -18,10 +20,11 @@ export async function GET(request: Request) {
 
   const started = Date.now();
 
-  const [pricesResult, dividendsResult, newsResult] = await Promise.allSettled([
+  const [pricesResult, dividendsResult, newsResult, financialsResult] = await Promise.allSettled([
     refreshPrices(),
     refreshDividends(),
     refreshNews(),
+    refreshFinancials(),
   ]);
 
   const summary = {
@@ -36,11 +39,20 @@ export async function GET(request: Request) {
     news: newsResult.status === 'fulfilled'
       ? { ok: true, total: Object.values(newsResult.value).flat().length }
       : { ok: false, error: (newsResult.reason as Error)?.message },
+
+    financials: financialsResult.status === 'fulfilled'
+      ? {
+          ok: true,
+          totalDocuments: Object.values(financialsResult.value.byTicker).flat().length,
+          missingTickers: financialsResult.value.missingTickers,
+        }
+      : { ok: false, error: (financialsResult.reason as Error)?.message },
   };
 
   const allOk = pricesResult.status === 'fulfilled'
     && dividendsResult.status === 'fulfilled'
-    && newsResult.status === 'fulfilled';
+    && newsResult.status === 'fulfilled'
+    && financialsResult.status === 'fulfilled';
 
   return NextResponse.json({
     success: allOk,
