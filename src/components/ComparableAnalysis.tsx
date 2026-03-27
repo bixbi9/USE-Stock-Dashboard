@@ -23,7 +23,7 @@ const ALL_PEERS: Record<string, PeerEntry[]> = {
   Telecommunications: [
     { ticker: 'MTN', name: 'MTN Uganda', peRatio: 12.4, dividendYield: 8.2, grossMargin: 68.4, revGrowth: 12.3, marketCap: '3.2T', fcfYield: 6.1 },
     { ticker: 'AIRTL', name: 'Airtel Uganda', peRatio: 18.6, dividendYield: 4.1, grossMargin: 61.2, revGrowth: 8.7, marketCap: '1.1T', fcfYield: 3.8 },
-    { ticker: 'SAFCOM', name: 'Safaricom (KE)', peRatio: 14.6, dividendYield: 5.3, grossMargin: 66.1, revGrowth: 10.8, marketCap: 'KES 1.21T', fcfYield: 4.9 },
+    { ticker: 'SAFCOM', name: 'Safaricom (KE)', peRatio: 14.6, dividendYield: 5.3, grossMargin: 66.1, revGrowth: 10.8, marketCap: 'UGX 34.5T', fcfYield: 4.9 },
   ],
   Banking: [
     { ticker: 'SBU', name: 'Stanbic Bank', peRatio: 8.3, dividendYield: 7.4, grossMargin: 72.1, revGrowth: 15.2, marketCap: '2.8T', fcfYield: 8.2 },
