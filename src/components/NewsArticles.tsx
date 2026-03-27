@@ -28,14 +28,16 @@ function relativeTime(isoDate: string): string {
 }
 
 const SOURCE_COLORS: Record<string, string> = {
-  'New Vision':       'bg-yellow-500/20 text-yellow-400',
-  'Daily Monitor':    'bg-blue-500/20 text-blue-400',
-  'The Observer':     'bg-purple-500/20 text-purple-400',
-  'Nile Post':        'bg-cyan-500/20 text-cyan-400',
-  'The East African': 'bg-orange-500/20 text-orange-400',
-  'Business Daily':   'bg-indigo-500/20 text-indigo-400',
-  'Nation Africa':    'bg-rose-500/20 text-rose-400',
-  'Chimp Reports':    'bg-lime-500/20 text-lime-400',
+  'New Vision':         'bg-yellow-500/20 text-yellow-400',
+  'Daily Monitor':      'bg-blue-500/20 text-blue-400',
+  'The Observer':       'bg-purple-500/20 text-purple-400',
+  'Nile Post':          'bg-cyan-500/20 text-cyan-400',
+  'The East African':   'bg-orange-500/20 text-orange-400',
+  'Business Daily':     'bg-indigo-500/20 text-indigo-400',
+  'Nation Africa':      'bg-rose-500/20 text-rose-400',
+  'Chimp Reports':      'bg-lime-500/20 text-lime-400',
+  'USE Announcements':  'bg-teal-500/20 text-teal-400',
+  'CMA Uganda':         'bg-violet-500/20 text-violet-400',
 };
 
 const SENTIMENT_CFG = {

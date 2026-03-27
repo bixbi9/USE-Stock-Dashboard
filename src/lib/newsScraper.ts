@@ -21,21 +21,27 @@ interface RawArticle {
 // Config
 // ──────────────────────────────────────────────────────────────────────────────
 
-const MAX_ARTICLE_AGE_DAYS = 60;
+const MAX_ARTICLE_AGE_DAYS = 30;
 const NEWS_CACHE_TTL_HOURS = 4;
 const DIV_CACHE_TTL_HOURS  = 24;
 
 // RSS feeds are preferred — structured XML designed for machine consumption.
 // HTML scraping is used as a fallback when the RSS feed is unavailable.
+// Sources ordered by financial relevance to USE-listed companies.
 const NEWS_SOURCES: NewsSource[] = [
-  { name: 'New Vision',          rssUrl: 'https://www.newvision.co.ug/feed',                    webUrl: 'https://www.newvision.co.ug' },
-  { name: 'Daily Monitor',       rssUrl: 'https://www.monitor.co.ug/rss',                        webUrl: 'https://www.monitor.co.ug/uganda' },
+  // Uganda-specific financial & general news
+  { name: 'Daily Monitor',       rssUrl: 'https://www.monitor.co.ug/business/markets/rss',       webUrl: 'https://www.monitor.co.ug/business/markets' },
+  { name: 'New Vision',          rssUrl: 'https://www.newvision.co.ug/feed',                      webUrl: 'https://www.newvision.co.ug/category/business' },
   { name: 'Nile Post',           rssUrl: 'https://nilepost.co.ug/feed',                           webUrl: 'https://nilepost.co.ug/businesses' },
-  { name: 'The Observer',        rssUrl: 'https://observer.ug/feed',                              webUrl: 'https://observer.ug' },
-  { name: 'The East African',    rssUrl: 'https://www.theeastafrican.co.ke/feed',                  webUrl: 'https://www.theeastafrican.co.ke/' },
-  { name: 'Business Daily',      rssUrl: 'https://www.businessdailyafrica.com/rss',               webUrl: 'https://www.businessdailyafrica.com/bd' },
-  { name: 'Nation Africa',       rssUrl: 'https://nation.africa/rss',                             webUrl: 'https://nation.africa/africa' },
-  { name: 'Chimp Reports',       rssUrl: 'https://chimpreports.com/feed',                         webUrl: 'https://chimpreports.com' },
+  { name: 'The Observer',        rssUrl: 'https://observer.ug/feed',                              webUrl: 'https://observer.ug/business' },
+  { name: 'Chimp Reports',       rssUrl: 'https://chimpreports.com/feed',                         webUrl: 'https://chimpreports.com/category/business' },
+  // East Africa regional financial press
+  { name: 'The East African',    rssUrl: 'https://www.theeastafrican.co.ke/tea/business/rss',     webUrl: 'https://www.theeastafrican.co.ke/tea/business' },
+  { name: 'Business Daily',      rssUrl: 'https://www.businessdailyafrica.com/bd/markets/rss',    webUrl: 'https://www.businessdailyafrica.com/bd/markets' },
+  { name: 'Nation Africa',       rssUrl: 'https://nation.africa/kenya/business/rss',              webUrl: 'https://nation.africa/kenya/business' },
+  // USE & regulator announcements (HTML scrape — no RSS)
+  { name: 'USE Announcements',   webUrl: 'https://www.use.or.ug/content/news' },
+  { name: 'CMA Uganda',          webUrl: 'https://www.cmauganda.co.ug/news' },
 ];
 
 const DIVIDEND_URLS = [
@@ -44,18 +50,20 @@ const DIVIDEND_URLS = [
 ];
 
 const COMPANY_ALIASES: Record<string, string[]> = {
-  MTN:   ['mtn', 'mtn uganda', 'mtn group'],
-  AIRTL: ['airtel', 'airtel uganda', 'airtel africa'],
-  SBU:   ['stanbic', 'stanbic bank', 'stanbic uganda', 'standard bank'],
-  DFCU:  ['dfcu', 'dfcu bank', 'dfcu group'],
-  BOBU:  ['baroda', 'bank of baroda', 'baroda uganda'],
-  EBU:   ['equity bank', 'equity uganda', 'equity group'],
-  UCL:   ['uganda clays', 'ug clays'],
-  NVU:   ['new vision', 'vision group', 'new vision printing'],
-  NIC:   ['national insurance', 'nic insurance'],
-  BATU:  ['bat uganda', 'british american tobacco', 'batu'],
-  UMEME: ['umeme', 'umeme limited'],
-  QCIL:  ['qcil', 'quality chemicals', 'quality chemical industries'],
+  MTN:   ['mtn uganda', 'mtn group', 'mtn mobile money', 'momo uganda'],
+  AIRTL: ['airtel uganda', 'airtel africa', 'airtel money'],
+  SBU:   ['stanbic bank', 'stanbic uganda', 'stanbic bank uganda'],
+  DFCU:  ['dfcu bank', 'dfcu group', 'dfcu limited'],
+  BOBU:  ['bank of baroda', 'bank of baroda uganda', 'baroda uganda'],
+  EBU:   ['equity bank uganda', 'equity bank limited', 'equity group uganda'],
+  UCL:   ['uganda clays', 'uganda clays limited'],
+  // NOTE: 'new vision' intentionally excluded — matches every New Vision newspaper article.
+  // Use company-specific identifiers only.
+  NVU:   ['new vision printing', 'vision group plc', 'new vision group', 'nvpu'],
+  NIC:   ['national insurance corporation', 'nic holdings', 'nic uganda'],
+  BATU:  ['bat uganda', 'british american tobacco uganda', 'batu limited'],
+  UMEME: ['umeme limited', 'umeme electricity', 'umeme distribution'],
+  QCIL:  ['quality chemicals', 'quality chemical industries', 'qcil uganda'],
 };
 
 const POSITIVE_WORDS = [
@@ -115,10 +123,12 @@ const scoreSentiment = (text: string): { sentiment: 'positive' | 'negative' | 'n
   return { sentiment: 'neutral', score: 0 };
 };
 
-const matchTicker = (title: string): string[] =>
-  USE_STOCKS
-    .filter(s => (COMPANY_ALIASES[s.ticker] ?? [s.name]).some(a => normalize(title).includes(normalize(a))))
+const matchTicker = (title: string, summary = ''): string[] => {
+  const haystack = normalize(`${title} ${summary}`);
+  return USE_STOCKS
+    .filter(s => (COMPANY_ALIASES[s.ticker] ?? [s.name]).some(a => haystack.includes(normalize(a))))
     .map(s => s.ticker);
+};
 
 // ──────────────────────────────────────────────────────────────────────────────
 // RSS parser — pure regex, no external library needed
@@ -295,7 +305,7 @@ export async function refreshNews(): Promise<Record<string, NewsArticle[]>> {
         if (!raw.url || !raw.title || raw.title.length < 12) continue;
         if (raw.publishedAt && !isWithinDays(raw.publishedAt, MAX_ARTICLE_AGE_DAYS)) continue;
 
-        const tickers = matchTicker(raw.title);
+        const tickers = matchTicker(raw.title, raw.summary ?? '');
         if (!tickers.length) continue;
 
         const { sentiment, score } = scoreSentiment(raw.title + ' ' + (raw.summary ?? ''));
