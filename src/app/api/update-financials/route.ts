@@ -27,7 +27,7 @@ const FINANCIAL_SOURCES = [
 ];
 
 const FETCH_OPTS: RequestInit = {
-  headers: { 'User-Agent': 'Mozilla/5.0 (compatible; USE-Dashboard/1.0)' },
+  headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36' },
   ...(typeof AbortSignal !== 'undefined' && 'timeout' in AbortSignal
     ? { signal: (AbortSignal as any).timeout(6_000) }
     : {}),
