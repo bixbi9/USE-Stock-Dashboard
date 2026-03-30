@@ -19,7 +19,7 @@ Stock prices and filings are sourced from [African Financials](https://africanfi
 ## Daily Updates
 
 The dashboard automatically updates stock prices daily via a cron job:
-- **Schedule**: 9:00 AM UTC daily
+- **Schedule**: 9:00 AM UTC, Monday through Saturday
 - **Endpoint**: `/api/update-prices`
 - **Authentication**: Protected with `CRON_SECRET` environment variable
 
@@ -68,7 +68,7 @@ https://your-domain.com/api/update-prices
 Authorization: Bearer YOUR_CRON_SECRET
 ```
 
-Schedule: `0 9 * * *` (9:00 AM UTC daily)
+Schedule: `0 9 * * 1-6` (9:00 AM UTC, Monday through Saturday)
 
 ## API Endpoints
 
