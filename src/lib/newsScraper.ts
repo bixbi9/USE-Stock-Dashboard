@@ -64,6 +64,13 @@ const abortSignalWithTimeout = AbortSignal as typeof AbortSignal & {
   timeout?: (milliseconds: number) => AbortSignal;
 };
 
+const createFetchOptions = (timeoutMs: number): RequestInit => ({
+  headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36' },
+  ...(typeof AbortSignal !== 'undefined' && typeof abortSignalWithTimeout.timeout === 'function'
+    ? { signal: abortSignalWithTimeout.timeout(timeoutMs) }
+    : {}),
+});
+
 // RSS feeds are preferred — structured XML designed for machine consumption.
 // HTML scraping is used as a fallback when the RSS feed is unavailable.
 // Sources ordered by financial relevance to USE-listed companies.
@@ -79,6 +86,7 @@ const NEWS_SOURCES: NewsSource[] = [
   { name: 'Business Daily',      rssUrl: 'https://www.businessdailyafrica.com/bd/markets/rss',    webUrl: 'https://www.businessdailyafrica.com/bd/markets' },
   { name: 'Nation Africa',       rssUrl: 'https://nation.africa/kenya/business/rss',              webUrl: 'https://nation.africa/kenya/business' },
   // USE & regulator announcements (HTML scrape — no RSS)
+  { name: 'USE Latest',          webUrl: 'https://www.use.or.ug/' },
   { name: 'USE Announcements',   webUrl: 'https://www.use.or.ug/content/news' },
   { name: 'CMA Uganda',          webUrl: 'https://www.cmauganda.co.ug/news' },
 ];
@@ -87,6 +95,21 @@ const DIVIDEND_URLS = [
   'https://www.use.or.ug/content/dividends-announcements',
   'https://africanfinancials.com/uganda-securities-exchange-dividends/',
 ];
+
+const AFRICAN_FINANCIALS_COMPANY_URLS: Record<string, string> = {
+  MTN: 'https://africanfinancials.com/company/ug-mtn/',
+  AIRTL: 'https://africanfinancials.com/company/ug-airtel/',
+  SBU: 'https://africanfinancials.com/company/ug-sbu/',
+  DFCU: 'https://africanfinancials.com/company/ug-dfcu/',
+  BOBU: 'https://africanfinancials.com/company/ug-bobu/',
+  EBU: 'https://africanfinancials.com/company/ug-ebl/',
+  UCL: 'https://africanfinancials.com/company/ug-ucl/',
+  NVU: 'https://africanfinancials.com/company/ug-nvl/',
+  NIC: 'https://africanfinancials.com/company/ug-nic/',
+  BATU: 'https://africanfinancials.com/company/ug-batu/',
+  UMEME: 'https://africanfinancials.com/company/ug-umeme/',
+  QCIL: 'https://africanfinancials.com/company/ug-qcil/',
+};
 
 const DIVIDEND_EXTRACTION_SCHEMA = {
   type: 'object',
@@ -230,10 +253,12 @@ const normalizeDividendCurrency = (value: string | undefined) => {
   return ['UGX', 'KES', 'USD'].includes(currency) ? currency : 'UGX';
 };
 
-async function extractDividendsWithScrapeGraph(sourceUrl: string): Promise<RawDividend[]> {
+async function extractDividendsWithScrapeGraph(sourceUrl: string, forcedTicker?: string): Promise<RawDividend[]> {
   const extraction = await extractWithScrapeGraph<ExtractedDividendsPayload>({
     url: sourceUrl,
-    prompt: 'Extract dividend announcements for Uganda Securities Exchange listed companies. Return ticker, company, dividend type, amount per share, currency, ex-dividend date, record date, payment date, status, and dividend year. Use ISO YYYY-MM-DD dates where possible.',
+    prompt: forcedTicker
+      ? `Extract dividend announcements for the Uganda Securities Exchange ticker ${forcedTicker}. Return ticker, company, dividend type, amount per share, currency, ex-dividend date, record date, payment date, status, and dividend year. Use ISO YYYY-MM-DD dates where possible.`
+      : 'Extract dividend announcements for Uganda Securities Exchange listed companies. Return ticker, company, dividend type, amount per share, currency, ex-dividend date, record date, payment date, status, and dividend year. Use ISO YYYY-MM-DD dates where possible.',
     outputSchema: DIVIDEND_EXTRACTION_SCHEMA,
     fetchConfig: {
       mode: 'auto',
@@ -249,7 +274,7 @@ async function extractDividendsWithScrapeGraph(sourceUrl: string): Promise<RawDi
   }
 
   return (extraction.data.dividends ?? []).flatMap((dividend): RawDividend[] => {
-    const ticker = dividend.ticker?.toUpperCase();
+    const ticker = dividend.ticker?.toUpperCase() || forcedTicker;
     if (!ticker || !USE_STOCKS.some(stock => stock.ticker === ticker)) return [];
 
     const amount = typeof dividend.amount === 'number'
@@ -341,8 +366,31 @@ function parseHTMLArticles(html: string, baseUrl: string): RawArticle[] {
 // Dividend HTML parser
 // ──────────────────────────────────────────────────────────────────────────────
 
-function parseDividendHtml(html: string) {
-  const clean = html.replace(/<script[\s\S]*?<\/script>/gi, '').replace(/<style[\s\S]*?<\/style>/gi, '');
+function sliceDividendSection(html: string) {
+  const headingMatches = [...html.matchAll(/<h[1-6][^>]*>\s*Dividends\s*<\/h[1-6]>/gi)];
+  const lastHeading = headingMatches.at(-1);
+  if (!lastHeading?.index) return html;
+
+  const section = html.slice(lastHeading.index);
+  const nextHeading = section.slice(1).search(/<h[1-6][^>]*>/i);
+  return nextHeading >= 0 ? section.slice(0, nextHeading + 1) : section;
+}
+
+function parseDateCell(value: string | undefined) {
+  if (!value) return '';
+  const match = value.match(/\d{4}[-/]\d{2}[-/]\d{2}|\d{2}[-/]\d{2}[-/]\d{4}/);
+  if (!match) return '';
+  const raw = match[0];
+  if (/^\d{2}[-/]\d{2}[-/]\d{4}$/.test(raw)) {
+    const p = raw.split(/[-/]/);
+    return `${p[2]}-${p[1]}-${p[0]}`;
+  }
+  return raw.replace(/\//g, '-');
+}
+
+function parseDividendHtml(html: string, forcedTicker?: string) {
+  const section = forcedTicker ? sliceDividendSection(html) : html;
+  const clean = section.replace(/<script[\s\S]*?<\/script>/gi, '').replace(/<style[\s\S]*?<\/style>/gi, '');
   const results: RawDividend[] = [];
 
   for (const row of (clean.match(/<tr[\s\S]*?<\/tr>/gi) ?? [])) {
@@ -350,27 +398,35 @@ function parseDividendHtml(html: string) {
     if (cells.length < 4) continue;
 
     const rowText = cells.join(' ');
-    const ticker  = USE_STOCKS.find(s =>
+    const ticker  = forcedTicker ?? USE_STOCKS.find(s =>
       (COMPANY_ALIASES[s.ticker] ?? [s.name]).some(a => normalize(rowText).includes(normalize(a)))
     )?.ticker;
     if (!ticker) continue;
 
-    const amtCell = cells.find(c => /^\d[\d,]*(\.\d+)?$/.test(c.replace(/ugx|kes|usd/gi, '').trim()));
+    const amtCell = cells.find(c => /(ugx|kes|usd|cents?)/i.test(c) && /\d/.test(c));
     if (!amtCell) continue;
-    const amount = parseFloat(amtCell.replace(/,/g, ''));
-
-    const datePattern = /\d{4}[-/]\d{2}[-/]\d{2}|\d{2}[-/]\d{2}[-/]\d{4}/g;
-    const dates = cells.flatMap(c => c.match(datePattern) ?? []).map(d => {
-      if (/^\d{2}[-/]\d{2}[-/]\d{4}$/.test(d)) { const p = d.split(/[-/]/); return `${p[2]}-${p[1]}-${p[0]}`; }
-      return d;
-    });
+    const rawAmount = parseFloat(amtCell.replace(/,/g, '').replace(/ugx|kes|usd|cents?/gi, '').trim());
+    const amount = /cents?/i.test(amtCell) ? rawAmount / 100 : rawAmount;
+    if (!Number.isFinite(amount) || amount <= 0) continue;
 
     const lower  = rowText.toLowerCase();
     const type   = lower.includes('interim') ? 'interim' : lower.includes('special') ? 'special' : 'final';
-    const status = lower.includes('paid') ? 'paid' : lower.includes('upcoming') ? 'upcoming' : 'announced';
-    const year   = dates[0] ? new Date(dates[0]).getFullYear() : new Date().getFullYear();
+    const recDate = parseDateCell(cells[2]);
+    const exDate = parseDateCell(cells[3]) || parseDateCell(cells[0]);
+    const payDate = parseDateCell(cells[4]);
+    const payTime = payDate ? new Date(payDate).getTime() : NaN;
+    const status = lower.includes('paid')
+      ? 'paid'
+      : Number.isFinite(payTime) && payTime < Date.now()
+        ? 'paid'
+        : lower.includes('upcoming')
+          ? 'upcoming'
+          : 'announced';
+    const year = (exDate || recDate || payDate)
+      ? new Date(exDate || recDate || payDate).getFullYear()
+      : new Date().getFullYear();
 
-    results.push({ ticker, type, amount, currency: 'UGX', exDate: dates[0] ?? '', recDate: dates[1] ?? '', payDate: dates[2] ?? '', status, year });
+    results.push({ ticker, type, amount, currency: 'UGX', exDate, recDate, payDate, status, year });
   }
   return results;
 }
@@ -454,13 +510,7 @@ function buildSentiment(news: NewsArticle[]): SentimentSummary {
 // Fetch options
 // ──────────────────────────────────────────────────────────────────────────────
 
-const FETCH_OPTS: RequestInit = {
-  headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36' },
   // 4 s timeout per source — keeps background scrapes well under Vercel limits
-  ...(typeof AbortSignal !== 'undefined' && typeof abortSignalWithTimeout.timeout === 'function'
-    ? { signal: abortSignalWithTimeout.timeout(4_000) }
-    : {}),
-};
 
 // ──────────────────────────────────────────────────────────────────────────────
 // News refresh
@@ -469,6 +519,27 @@ const FETCH_OPTS: RequestInit = {
 export async function refreshNews(): Promise<Record<string, NewsArticle[]>> {
   const byTicker: Record<string, NewsArticle[]> = Object.fromEntries(USE_STOCKS.map(s => [s.ticker, []]));
 
+  const addArticle = (raw: RawArticle, tickers: string[], sourceName: string) => {
+    if (!raw.url || !raw.title || raw.title.length < 12) return;
+    if (raw.publishedAt && !isWithinDays(raw.publishedAt, MAX_ARTICLE_AGE_DAYS)) return;
+
+    const { sentiment, score } = scoreSentiment(raw.title + ' ' + (raw.summary ?? ''));
+    const article: NewsArticle = {
+      id:             hashId(raw.url),
+      title:          raw.title,
+      summary:        raw.summary ?? '',
+      source:         sourceName,
+      publishedAt:    raw.publishedAt ?? new Date().toISOString(),
+      url:            raw.url,
+      sentiment,
+      sentimentScore: score,
+    };
+
+    for (const t of tickers) {
+      if (!byTicker[t]?.some(a => a.id === article.id)) byTicker[t]?.push(article);
+    }
+  };
+
   await Promise.allSettled(
     NEWS_SOURCES.map(async source => {
       let rawArticles: RawArticle[] = [];
@@ -476,7 +547,7 @@ export async function refreshNews(): Promise<Record<string, NewsArticle[]>> {
       // 1. Try RSS
       if (source.rssUrl) {
         try {
-          const res = await fetch(source.rssUrl, FETCH_OPTS);
+          const res = await fetch(source.rssUrl, createFetchOptions(4_000));
           if (res.ok) rawArticles = parseRSSItems(await res.text());
         } catch { /* fall through */ }
       }
@@ -484,34 +555,29 @@ export async function refreshNews(): Promise<Record<string, NewsArticle[]>> {
       // 2. HTML fallback
       if (rawArticles.length === 0) {
         try {
-          const res = await fetch(source.webUrl, FETCH_OPTS);
+          const res = await fetch(source.webUrl, createFetchOptions(4_000));
           if (res.ok) rawArticles = parseHTMLArticles(await res.text(), source.webUrl);
         } catch { /* skip source entirely */ }
       }
 
       for (const raw of rawArticles) {
-        if (!raw.url || !raw.title || raw.title.length < 12) continue;
-        if (raw.publishedAt && !isWithinDays(raw.publishedAt, MAX_ARTICLE_AGE_DAYS)) continue;
-
         const tickers = matchTicker(raw.title, raw.summary ?? '');
         if (!tickers.length) continue;
-
-        const { sentiment, score } = scoreSentiment(raw.title + ' ' + (raw.summary ?? ''));
-        const article: NewsArticle = {
-          id:             hashId(raw.url),
-          title:          raw.title,
-          summary:        raw.summary ?? '',
-          source:         source.name,
-          publishedAt:    raw.publishedAt ?? new Date().toISOString(),
-          url:            raw.url,
-          sentiment,
-          sentimentScore: score,
-        };
-
-        for (const t of tickers) {
-          if (!byTicker[t].some(a => a.id === article.id)) byTicker[t].push(article);
-        }
+        addArticle(raw, tickers, source.name);
       }
+    })
+  );
+
+  await Promise.allSettled(
+    Object.entries(AFRICAN_FINANCIALS_COMPANY_URLS).map(async ([ticker, url]) => {
+      try {
+        const res = await fetch(url, createFetchOptions(4_000));
+        if (!res.ok) return;
+        const rawArticles = parseHTMLArticles(await res.text(), url);
+        for (const raw of rawArticles) {
+          addArticle(raw, [ticker], 'AfricanFinancials');
+        }
+      } catch { /* skip ticker page */ }
     })
   );
 
@@ -536,10 +602,28 @@ export async function refreshNews(): Promise<Record<string, NewsArticle[]>> {
 export async function refreshDividends(): Promise<Record<string, DividendAnnouncement[]>> {
   const byTicker: Record<string, DividendAnnouncement[]> = Object.fromEntries(USE_STOCKS.map(s => [s.ticker, []]));
   let found = 0;
+  const addDividend = (d: RawDividend) => {
+    if (!byTicker[d.ticker]) return;
+    const div: DividendAnnouncement = {
+      id:             hashId(`${d.ticker}-${d.exDate}-${d.amount}`),
+      type:           d.type as 'interim' | 'final' | 'special',
+      amount:         d.amount,
+      currency:       d.currency,
+      exDividendDate: d.exDate,
+      recordDate:     d.recDate,
+      paymentDate:    d.payDate,
+      status:         d.status as 'announced' | 'paid' | 'upcoming',
+      year:           d.year,
+    };
+    if (!byTicker[d.ticker].some(x => x.id === div.id)) {
+      byTicker[d.ticker].push(div);
+      found++;
+    }
+  };
 
   for (const url of DIVIDEND_URLS) {
     try {
-      const res = await fetch(url, FETCH_OPTS);
+      const res = await fetch(url, createFetchOptions(4_000));
       if (!res.ok) continue;
       const html = await res.text();
       const parsedDividends = parseDividendHtml(html);
@@ -547,24 +631,26 @@ export async function refreshDividends(): Promise<Record<string, DividendAnnounc
         ? parsedDividends
         : await extractDividendsWithScrapeGraph(url);
 
-      for (const d of dividends) {
-        const div: DividendAnnouncement = {
-          id:             hashId(`${d.ticker}-${d.exDate}-${d.amount}`),
-          type:           d.type as 'interim' | 'final' | 'special',
-          amount:         d.amount,
-          currency:       d.currency,
-          exDividendDate: d.exDate,
-          recordDate:     d.recDate,
-          paymentDate:    d.payDate,
-          status:         d.status as 'announced' | 'paid' | 'upcoming',
-          year:           d.year,
-        };
-        if (!byTicker[d.ticker].some(x => x.id === div.id)) { byTicker[d.ticker].push(div); found++; }
-      }
+      for (const d of dividends) addDividend(d);
     } catch (err) {
       console.error(`[newsScraper] Dividend scrape failed for ${url}:`, err);
     }
   }
+
+  await Promise.allSettled(
+    Object.entries(AFRICAN_FINANCIALS_COMPANY_URLS).map(async ([ticker, url]) => {
+      try {
+        const res = await fetch(url, createFetchOptions(4_000));
+        const parsedDividends = res.ok ? parseDividendHtml(await res.text(), ticker) : [];
+        const dividends = parsedDividends.length > 0
+          ? parsedDividends
+          : await extractDividendsWithScrapeGraph(url, ticker);
+        for (const d of dividends) addDividend(d);
+      } catch (err) {
+        console.error(`[newsScraper] Company dividend scrape failed for ${ticker}:`, err);
+      }
+    })
+  );
 
   if (found > 0) {
     dividendCache = byTicker;

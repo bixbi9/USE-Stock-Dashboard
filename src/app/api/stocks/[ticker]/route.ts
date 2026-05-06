@@ -64,19 +64,17 @@ export async function GET(
   if (!isNewsCacheFresh()) refreshNews().catch(() => {});
   if (!isDividendCacheFresh()) refreshDividends().catch(() => {});
 
-  // Overlay live news (uses Redis-backed cron cache when available)
-  if (latestNews.length > 0) {
-    stockData.news      = latestNews.slice(0, 12);
-    stockData.sentiment = getSentimentForNews(stockData.news);
-  }
+  // Overlay live news even when empty so stale mock articles do not leak into
+  // tickers that currently have no matching scraped coverage.
+  stockData.news = latestNews.slice(0, 12);
+  stockData.sentiment = getSentimentForNews(stockData.news);
 
-  // Overlay live dividends (uses Redis-backed cron cache when available)
-  if (latestDividends.length > 0) {
-    stockData.dividends = latestDividends;
-    const liveDividendYield = deriveDividendYield(stockData.metrics.currentPrice, latestDividends);
-    if (liveDividendYield !== null) {
-      stockData.metrics.dividendYield = liveDividendYield;
-    }
+  // Overlay live dividends even when empty so the dashboard never presents old
+  // seeded dividend announcements as fresh scrape results.
+  stockData.dividends = latestDividends;
+  const liveDividendYield = deriveDividendYield(stockData.metrics.currentPrice, latestDividends);
+  if (liveDividendYield !== null) {
+    stockData.metrics.dividendYield = liveDividendYield;
   }
 
   // Overlay latest financial documents (from African Financials)

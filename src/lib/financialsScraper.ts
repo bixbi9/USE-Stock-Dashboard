@@ -16,6 +16,13 @@ const abortSignalWithTimeout = AbortSignal as typeof AbortSignal & {
   timeout?: (milliseconds: number) => AbortSignal;
 };
 
+const createFetchOptions = (timeoutMs: number): RequestInit => ({
+  headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36' },
+  ...(typeof AbortSignal !== 'undefined' && typeof abortSignalWithTimeout.timeout === 'function'
+    ? { signal: abortSignalWithTimeout.timeout(timeoutMs) }
+    : {}),
+});
+
 const AFRICAN_TICKER_MAP: Record<string, string> = {
   MTN: 'MTN',
   AIRT: 'AIRTL',
@@ -46,13 +53,6 @@ const COMPANY_ALIASES: Record<string, string[]> = {
   BATU: ['bat uganda', 'british american tobacco uganda', 'british american tobacco'],
   UMEME: ['umeme', 'umeme limited'],
   QCIL: ['quality chemicals', 'quality chemicals industries', 'quality chemicals industries ltd', 'qcil'],
-};
-
-const FETCH_OPTS: RequestInit = {
-  headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36' },
-  ...(typeof AbortSignal !== 'undefined' && typeof abortSignalWithTimeout.timeout === 'function'
-    ? { signal: abortSignalWithTimeout.timeout(8_000) }
-    : {}),
 };
 
 type ExtractedFinancialDocument = {
@@ -332,7 +332,7 @@ async function fetchAllDocuments(): Promise<Omit<FinancialDocument, 'ticker'>[]>
 
   for (let page = 1; page <= MAX_PAGES; page++) {
     const url = page === 1 ? SOURCE_URL : `${SOURCE_URL}page/${page}/`;
-    const res = await fetch(url, FETCH_OPTS);
+    const res = await fetch(url, createFetchOptions(8_000));
     if (!res.ok) break;
 
     const html = await res.text();
