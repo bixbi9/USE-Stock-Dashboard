@@ -8,6 +8,10 @@ const PRICE_CACHE_KEY = 'use:prices';
 const PRICE_CACHE_TTL = 60 * 60 * 24; // 24 hours in seconds
 const FINANCIALS_CACHE_KEY = 'use:financials';
 const FINANCIALS_CACHE_TTL = 60 * 60 * 24 * 7; // 7 days in seconds
+const NEWS_CACHE_KEY = 'use:news';
+const NEWS_CACHE_TTL = 60 * 60 * 4; // 4 hours in seconds
+const DIVIDENDS_CACHE_KEY = 'use:dividends';
+const DIVIDENDS_CACHE_TTL = 60 * 60 * 24; // 24 hours in seconds
 
 async function upstashFetch(command: unknown[]): Promise<unknown> {
   const url = process.env.UPSTASH_REDIS_REST_URL;
@@ -80,5 +84,43 @@ export async function invalidateFinancialsCache(): Promise<void> {
     await upstashFetch(['DEL', FINANCIALS_CACHE_KEY]);
   } catch (err) {
     console.error('[Redis] invalidateFinancialsCache failed:', err);
+  }
+}
+
+export async function getCachedNews<T>(): Promise<T | null> {
+  try {
+    const result = await upstashFetch(['GET', NEWS_CACHE_KEY]);
+    if (!result) return null;
+    return (typeof result === 'string' ? JSON.parse(result) : result) as T;
+  } catch (err) {
+    console.error('[Redis] getCachedNews failed:', err);
+    return null;
+  }
+}
+
+export async function setCachedNews<T>(news: T): Promise<void> {
+  try {
+    await upstashFetch(['SET', NEWS_CACHE_KEY, JSON.stringify(news), 'EX', NEWS_CACHE_TTL]);
+  } catch (err) {
+    console.error('[Redis] setCachedNews failed:', err);
+  }
+}
+
+export async function getCachedDividends<T>(): Promise<T | null> {
+  try {
+    const result = await upstashFetch(['GET', DIVIDENDS_CACHE_KEY]);
+    if (!result) return null;
+    return (typeof result === 'string' ? JSON.parse(result) : result) as T;
+  } catch (err) {
+    console.error('[Redis] getCachedDividends failed:', err);
+    return null;
+  }
+}
+
+export async function setCachedDividends<T>(dividends: T): Promise<void> {
+  try {
+    await upstashFetch(['SET', DIVIDENDS_CACHE_KEY, JSON.stringify(dividends), 'EX', DIVIDENDS_CACHE_TTL]);
+  } catch (err) {
+    console.error('[Redis] setCachedDividends failed:', err);
   }
 }

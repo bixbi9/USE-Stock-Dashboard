@@ -61,6 +61,67 @@ const normalizeCompanyName = (name: string) =>
 
 const parseNumber = (value: string) => Number.parseFloat(value.replace(/,/g, ''));
 
+const parseMarketCap = (value: string) => {
+  const normalized = value.toUpperCase().replace(/^UGX\s+/, '').replace(/,/g, '').trim();
+  const match = normalized.match(/^([\d.]+)\s*([KMBT])$/);
+  if (!match) return null;
+
+  const amount = Number.parseFloat(match[1]);
+  const unit = match[2];
+  const multiplier = unit === 'T'
+    ? 1_000_000_000_000
+    : unit === 'B'
+      ? 1_000_000_000
+      : unit === 'M'
+        ? 1_000_000
+        : 1_000;
+
+  return Number.isFinite(amount) ? amount * multiplier : null;
+};
+
+const formatMarketCap = (value: number) => {
+  const units = [
+    { suffix: 'T', value: 1_000_000_000_000 },
+    { suffix: 'B', value: 1_000_000_000 },
+    { suffix: 'M', value: 1_000_000 },
+    { suffix: 'K', value: 1_000 },
+  ];
+
+  for (const unit of units) {
+    if (value >= unit.value) {
+      const scaled = value / unit.value;
+      const formatted = scaled >= 100
+        ? scaled.toFixed(0)
+        : scaled >= 10
+          ? scaled.toFixed(1)
+          : scaled.toFixed(2);
+
+      return `UGX ${formatted.replace(/\.0+$/, '').replace(/(\.\d*[1-9])0+$/, '$1')}${unit.suffix}`;
+    }
+  }
+
+  return `UGX ${value.toFixed(0)}`;
+};
+
+const deriveMarketCap = (marketCap: string, currentPrice: number, basePrice: number) => {
+  const baseMarketCap = parseMarketCap(marketCap);
+  if (!baseMarketCap || basePrice <= 0 || currentPrice <= 0) return marketCap;
+
+  return formatMarketCap(baseMarketCap * (currentPrice / basePrice));
+};
+
+const derivePeRatio = (base: StockMetrics, currentPrice: number) => {
+  if (base.currentPrice <= 0 || currentPrice <= 0) return base.peRatio;
+  return Number((base.peRatio * (currentPrice / base.currentPrice)).toFixed(1));
+};
+
+const deriveDividendYield = (base: StockMetrics, currentPrice: number) => {
+  if (base.currentPrice <= 0 || currentPrice <= 0) return base.dividendYield;
+
+  const annualDividendPerShare = base.currentPrice * (base.dividendYield / 100);
+  return Number(((annualDividendPerShare / currentPrice) * 100).toFixed(1));
+};
+
 const decodeHtml = (value: string) =>
   value
     .replace(/&nbsp;/gi, ' ')
@@ -79,7 +140,7 @@ const parseAfricanFinancialsHtml = (html: string) => {
   const rows = sanitized.match(/<tr[\s\S]*?<\/tr>/gi) || [];
   let headerCells: string[] | null = null;
   let headerIndexes: Record<string, number> | null = null;
-  let parsed: Record<string, { currentPrice: number; changePercent: number; volume: number; lastUpdated: string }> = {};
+  const parsed: Record<string, { currentPrice: number; changePercent: number; volume: number; lastUpdated: string }> = {};
 
   const headerLookup = (cell: string) => stripTags(cell).toLowerCase();
 
@@ -225,7 +286,10 @@ export async function fetchCurrentPrices(): Promise<Record<string, StockMetrics>
           currentPrice: update.currentPrice,
           changePercent: update.changePercent,
           change: Number((update.currentPrice * (update.changePercent / 100)).toFixed(2)),
+          marketCap: deriveMarketCap(base.marketCap, update.currentPrice, base.currentPrice),
           volume: update.volume,
+          peRatio: derivePeRatio(base, update.currentPrice),
+          dividendYield: deriveDividendYield(base, update.currentPrice),
           lastUpdated: update.lastUpdated
         };
       } else {
@@ -457,4 +521,3 @@ export async function refreshPrices(): Promise<void> {
   lastUpdate = null;
   await fetchCurrentPrices();
 }
-

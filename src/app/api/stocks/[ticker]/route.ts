@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getStockDataSync } from '@/lib/mockData';
 import { fetchCurrentPrices } from '@/lib/dataFetcher';
 import { getFinancialsSnapshot } from '@/lib/financialsScraper';
+import { StockMetrics } from '@/types/stock';
 import {
   getNewsForTicker,
   getDividendsForTicker,
@@ -11,6 +12,18 @@ import {
   refreshNews,
   refreshDividends,
 } from '@/lib/newsScraper';
+
+function deriveDividendYield(currentPrice: number, dividends: Array<{ amount: number; year: number }>) {
+  if (currentPrice <= 0 || dividends.length === 0) return null;
+
+  const latestYear = Math.max(...dividends.map((dividend) => dividend.year));
+  const annualTotal = dividends
+    .filter((dividend) => dividend.year === latestYear)
+    .reduce((sum, dividend) => sum + dividend.amount, 0);
+
+  if (annualTotal <= 0) return null;
+  return Number(((annualTotal / currentPrice) * 100).toFixed(1));
+}
 
 export async function GET(
   request: NextRequest,
@@ -28,10 +41,7 @@ export async function GET(
   // News and dividend scrapes hit multiple external URLs and can take 5–15 s;
   // firing them in the background lets the response return immediately and
   // the cache warms up for the next request.
-  const latestPrices = await fetchCurrentPrices().catch(() => ({} as Record<string, any>));
-
-  if (!isNewsCacheFresh())     refreshNews().catch(() => {});
-  if (!isDividendCacheFresh()) refreshDividends().catch(() => {});
+  const latestPrices = await fetchCurrentPrices().catch(() => ({} as Record<string, StockMetrics>));
 
   const stockData = getStockDataSync(upper);
   if (!stockData) {
@@ -46,17 +56,27 @@ export async function GET(
     stockData.metrics = latestPrices[upper];
   }
 
-  // Overlay live news (uses whatever is in cache right now)
-  const latestNews = getNewsForTicker(upper);
+  const [latestNews, latestDividends] = await Promise.all([
+    getNewsForTicker(upper),
+    getDividendsForTicker(upper),
+  ]);
+
+  if (!isNewsCacheFresh()) refreshNews().catch(() => {});
+  if (!isDividendCacheFresh()) refreshDividends().catch(() => {});
+
+  // Overlay live news (uses Redis-backed cron cache when available)
   if (latestNews.length > 0) {
     stockData.news      = latestNews.slice(0, 12);
     stockData.sentiment = getSentimentForNews(stockData.news);
   }
 
-  // Overlay live dividends (uses whatever is in cache right now)
-  const latestDividends = getDividendsForTicker(upper);
+  // Overlay live dividends (uses Redis-backed cron cache when available)
   if (latestDividends.length > 0) {
     stockData.dividends = latestDividends;
+    const liveDividendYield = deriveDividendYield(stockData.metrics.currentPrice, latestDividends);
+    if (liveDividendYield !== null) {
+      stockData.metrics.dividendYield = liveDividendYield;
+    }
   }
 
   // Overlay latest financial documents (from African Financials)

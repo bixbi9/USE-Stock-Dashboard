@@ -1,4 +1,10 @@
 import { NewsArticle, DividendAnnouncement, SentimentSummary, USE_STOCKS } from '@/types/stock';
+import {
+  getCachedDividends,
+  getCachedNews,
+  setCachedDividends,
+  setCachedNews,
+} from './redis';
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Types
@@ -24,6 +30,9 @@ interface RawArticle {
 const MAX_ARTICLE_AGE_DAYS = 30;
 const NEWS_CACHE_TTL_HOURS = 4;
 const DIV_CACHE_TTL_HOURS  = 24;
+const abortSignalWithTimeout = AbortSignal as typeof AbortSignal & {
+  timeout?: (milliseconds: number) => AbortSignal;
+};
 
 // RSS feeds are preferred — structured XML designed for machine consumption.
 // HTML scraping is used as a fallback when the RSS feed is unavailable.
@@ -236,8 +245,6 @@ let dividendCache: Record<string, DividendAnnouncement[]> = {};
 let lastNewsUpdate: Date | null = null;
 let lastDivUpdate:  Date | null = null;
 
-export const getNewsForTicker      = (ticker: string): NewsArticle[]          => newsCache[ticker]     ?? [];
-export const getDividendsForTicker = (ticker: string): DividendAnnouncement[] => dividendCache[ticker] ?? [];
 export const getSentimentForNews   = buildSentiment;
 
 export function isNewsCacheFresh(maxHours = NEWS_CACHE_TTL_HOURS) {
@@ -245,6 +252,48 @@ export function isNewsCacheFresh(maxHours = NEWS_CACHE_TTL_HOURS) {
 }
 export function isDividendCacheFresh(maxHours = DIV_CACHE_TTL_HOURS) {
   return !!lastDivUpdate && (Date.now() - lastDivUpdate.getTime()) / 3_600_000 < maxHours;
+}
+
+interface NewsCacheSnapshot {
+  updatedAt: string;
+  byTicker: Record<string, NewsArticle[]>;
+}
+
+interface DividendCacheSnapshot {
+  updatedAt: string;
+  byTicker: Record<string, DividendAnnouncement[]>;
+}
+
+async function loadNewsCacheFromRedis() {
+  const cached = await getCachedNews<NewsCacheSnapshot>();
+  if (!cached?.updatedAt || !cached.byTicker) return;
+
+  newsCache = cached.byTicker;
+  lastNewsUpdate = new Date(cached.updatedAt);
+}
+
+async function loadDividendCacheFromRedis() {
+  const cached = await getCachedDividends<DividendCacheSnapshot>();
+  if (!cached?.updatedAt || !cached.byTicker) return;
+
+  dividendCache = cached.byTicker;
+  lastDivUpdate = new Date(cached.updatedAt);
+}
+
+export async function getNewsForTicker(ticker: string): Promise<NewsArticle[]> {
+  if (!newsCache[ticker]?.length) {
+    await loadNewsCacheFromRedis();
+  }
+
+  return newsCache[ticker] ?? [];
+}
+
+export async function getDividendsForTicker(ticker: string): Promise<DividendAnnouncement[]> {
+  if (!dividendCache[ticker]?.length) {
+    await loadDividendCacheFromRedis();
+  }
+
+  return dividendCache[ticker] ?? [];
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -269,8 +318,8 @@ function buildSentiment(news: NewsArticle[]): SentimentSummary {
 const FETCH_OPTS: RequestInit = {
   headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36' },
   // 4 s timeout per source — keeps background scrapes well under Vercel limits
-  ...(typeof AbortSignal !== 'undefined' && 'timeout' in AbortSignal
-    ? { signal: (AbortSignal as any).timeout(4_000) }
+  ...(typeof AbortSignal !== 'undefined' && typeof abortSignalWithTimeout.timeout === 'function'
+    ? { signal: abortSignalWithTimeout.timeout(4_000) }
     : {}),
 };
 
@@ -334,6 +383,10 @@ export async function refreshNews(): Promise<Record<string, NewsArticle[]>> {
 
   newsCache      = byTicker;
   lastNewsUpdate = new Date();
+  await setCachedNews({
+    updatedAt: lastNewsUpdate.toISOString(),
+    byTicker: newsCache,
+  });
   return newsCache;
 }
 
@@ -371,6 +424,15 @@ export async function refreshDividends(): Promise<Record<string, DividendAnnounc
   if (found > 0) {
     dividendCache = byTicker;
     lastDivUpdate = new Date();
+    await setCachedDividends({
+      updatedAt: lastDivUpdate.toISOString(),
+      byTicker: dividendCache,
+    });
+    return dividendCache;
+  }
+
+  if (Object.keys(dividendCache).length === 0) {
+    await loadDividendCacheFromRedis();
   }
 
   return dividendCache;
