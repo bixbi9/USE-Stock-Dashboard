@@ -586,6 +586,14 @@ export async function refreshNews(): Promise<Record<string, NewsArticle[]>> {
     byTicker[t].sort((a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime());
   }
 
+  const totalArticles = Object.values(byTicker).reduce((sum, articles) => sum + articles.length, 0);
+  if (totalArticles === 0) {
+    if (Object.keys(newsCache).length === 0) {
+      await loadNewsCacheFromRedis();
+    }
+    return newsCache;
+  }
+
   newsCache      = byTicker;
   lastNewsUpdate = new Date();
   await setCachedNews({
